@@ -32,8 +32,10 @@ if ( ! class_exists( 'Memcached' ) ) {
 
 // Load admin page if in admin.
 if ( is_admin() ) {
-    require_once HAZELCAST_OBJECT_CACHE_DIR . 'admin/class-hazelcast-admin.php';
-    Hazelcast_WP_Admin::instance();
+    add_action( 'init', function() {
+        require_once HAZELCAST_OBJECT_CACHE_DIR . 'admin/class-hazelcast-admin.php';
+        Hazelcast_WP_Admin::instance();
+    } );
 }
 
 // Register WP-CLI commands if available.
