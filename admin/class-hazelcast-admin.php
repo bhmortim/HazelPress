@@ -23,6 +23,7 @@ class Hazelcast_WP_Admin {
     private function __construct() {
         add_action( 'admin_menu', array( $this, 'add_admin_menu' ) );
         add_action( 'admin_init', array( $this, 'handle_flush_action' ) );
+        add_action( 'wp_ajax_hazelcast_connection_test', array( $this, 'handle_connection_test' ) );
     }
 
     public function add_admin_menu() {
@@ -33,6 +34,80 @@ class Hazelcast_WP_Admin {
             'hazelcast-object-cache',
             array( $this, 'render_admin_page' )
         );
+    }
+
+    public function handle_connection_test() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( array( 'message' => __( 'Permission denied.', 'hazelcast-object-cache' ) ) );
+        }
+
+        if ( ! isset( $_POST['nonce'] ) || ! wp_verify_nonce( sanitize_key( $_POST['nonce'] ), 'hazelcast_connection_test' ) ) {
+            wp_send_json_error( array( 'message' => __( 'Invalid security token.', 'hazelcast-object-cache' ) ) );
+        }
+
+        if ( ! function_exists( 'wp_cache_set' ) || ! function_exists( 'wp_cache_get' ) || ! function_exists( 'wp_cache_delete' ) ) {
+            wp_send_json_error( array( 'message' => __( 'Object cache functions not available.', 'hazelcast-object-cache' ) ) );
+        }
+
+        $test_key   = 'hazelcast_connection_test_' . time();
+        $test_value = 'test_value_' . wp_generate_password( 8, false );
+        $test_group = 'hazelcast_test';
+        $results    = array();
+
+        $start_set  = microtime( true );
+        $set_result = wp_cache_set( $test_key, $test_value, $test_group, 60 );
+        $end_set    = microtime( true );
+        $results['set'] = array(
+            'success' => $set_result,
+            'latency' => round( ( $end_set - $start_set ) * 1000, 2 ),
+        );
+
+        if ( ! $set_result ) {
+            wp_send_json_error( array(
+                'message' => __( 'Failed to SET test value.', 'hazelcast-object-cache' ),
+                'results' => $results,
+            ) );
+        }
+
+        $start_get  = microtime( true );
+        $get_result = wp_cache_get( $test_key, $test_group, true );
+        $end_get    = microtime( true );
+        $results['get'] = array(
+            'success' => $get_result === $test_value,
+            'latency' => round( ( $end_get - $start_get ) * 1000, 2 ),
+        );
+
+        if ( $get_result !== $test_value ) {
+            wp_send_json_error( array(
+                'message' => __( 'Failed to GET test value or value mismatch.', 'hazelcast-object-cache' ),
+                'results' => $results,
+            ) );
+        }
+
+        $start_delete  = microtime( true );
+        $delete_result = wp_cache_delete( $test_key, $test_group );
+        $end_delete    = microtime( true );
+        $results['delete'] = array(
+            'success' => $delete_result,
+            'latency' => round( ( $end_delete - $start_delete ) * 1000, 2 ),
+        );
+
+        if ( ! $delete_result ) {
+            wp_send_json_error( array(
+                'message' => __( 'Failed to DELETE test value.', 'hazelcast-object-cache' ),
+                'results' => $results,
+            ) );
+        }
+
+        $results['total_latency'] = round(
+            $results['set']['latency'] + $results['get']['latency'] + $results['delete']['latency'],
+            2
+        );
+
+        wp_send_json_success( array(
+            'message' => __( 'Connection test passed successfully!', 'hazelcast-object-cache' ),
+            'results' => $results,
+        ) );
     }
 
     public function handle_flush_action() {
@@ -276,7 +351,120 @@ class Hazelcast_WP_Admin {
                         <?php esc_html_e( 'This will clear all cached data from the Hazelcast cluster.', 'hazelcast-object-cache' ); ?>
                     </p>
                 </form>
+                <hr />
+                <p>
+                    <button type="button" id="hazelcast-connection-test" class="button button-secondary">
+                        <?php esc_attr_e( 'Test Connection', 'hazelcast-object-cache' ); ?>
+                    </button>
+                    <span id="hazelcast-test-spinner" class="spinner" style="float: none; margin-top: 0;"></span>
+                </p>
+                <p class="description">
+                    <?php esc_html_e( 'Performs a set/get/delete cycle to verify the connection and measure latency.', 'hazelcast-object-cache' ); ?>
+                </p>
+                <div id="hazelcast-test-results" style="display: none; margin-top: 15px;">
+                    <table class="widefat striped">
+                        <thead>
+                            <tr>
+                                <th><?php esc_html_e( 'Operation', 'hazelcast-object-cache' ); ?></th>
+                                <th><?php esc_html_e( 'Status', 'hazelcast-object-cache' ); ?></th>
+                                <th><?php esc_html_e( 'Latency', 'hazelcast-object-cache' ); ?></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>SET</td>
+                                <td id="hazelcast-test-set-status">-</td>
+                                <td id="hazelcast-test-set-latency">-</td>
+                            </tr>
+                            <tr>
+                                <td>GET</td>
+                                <td id="hazelcast-test-get-status">-</td>
+                                <td id="hazelcast-test-get-latency">-</td>
+                            </tr>
+                            <tr>
+                                <td>DELETE</td>
+                                <td id="hazelcast-test-delete-status">-</td>
+                                <td id="hazelcast-test-delete-latency">-</td>
+                            </tr>
+                            <tr>
+                                <th><?php esc_html_e( 'Total', 'hazelcast-object-cache' ); ?></th>
+                                <td id="hazelcast-test-total-status">-</td>
+                                <td id="hazelcast-test-total-latency">-</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <div id="hazelcast-test-message" style="margin-top: 10px;"></div>
+                </div>
             </div>
+
+            <script type="text/javascript">
+            jQuery(document).ready(function($) {
+                $('#hazelcast-connection-test').on('click', function() {
+                    var $button = $(this);
+                    var $spinner = $('#hazelcast-test-spinner');
+                    var $results = $('#hazelcast-test-results');
+                    var $message = $('#hazelcast-test-message');
+
+                    $button.prop('disabled', true);
+                    $spinner.addClass('is-active');
+                    $results.hide();
+                    $message.html('');
+
+                    $.ajax({
+                        url: ajaxurl,
+                        type: 'POST',
+                        data: {
+                            action: 'hazelcast_connection_test',
+                            nonce: '<?php echo esc_js( wp_create_nonce( 'hazelcast_connection_test' ) ); ?>'
+                        },
+                        success: function(response) {
+                            $results.show();
+
+                            var statusIcon = function(success) {
+                                return success
+                                    ? '<span style="color: green;">&#10003;</span>'
+                                    : '<span style="color: red;">&#10007;</span>';
+                            };
+
+                            if (response.data && response.data.results) {
+                                var r = response.data.results;
+
+                                if (r.set) {
+                                    $('#hazelcast-test-set-status').html(statusIcon(r.set.success));
+                                    $('#hazelcast-test-set-latency').text(r.set.latency + ' ms');
+                                }
+                                if (r.get) {
+                                    $('#hazelcast-test-get-status').html(statusIcon(r.get.success));
+                                    $('#hazelcast-test-get-latency').text(r.get.latency + ' ms');
+                                }
+                                if (r.delete) {
+                                    $('#hazelcast-test-delete-status').html(statusIcon(r.delete.success));
+                                    $('#hazelcast-test-delete-latency').text(r.delete.latency + ' ms');
+                                }
+                                if (r.total_latency !== undefined) {
+                                    $('#hazelcast-test-total-status').html(statusIcon(response.success));
+                                    $('#hazelcast-test-total-latency').html('<strong>' + r.total_latency + ' ms</strong>');
+                                }
+                            }
+
+                            if (response.success) {
+                                $message.html('<div class="notice notice-success inline"><p>' + response.data.message + '</p></div>');
+                            } else {
+                                $message.html('<div class="notice notice-error inline"><p>' + response.data.message + '</p></div>');
+                            }
+                        },
+                        error: function(xhr, status, error) {
+                            $results.show();
+                            $message.html('<div class="notice notice-error inline"><p><?php echo esc_js( __( 'AJAX request failed:', 'hazelcast-object-cache' ) ); ?> ' + error + '</p></div>');
+                        },
+                        complete: function() {
+                            $button.prop('disabled', false);
+                            $spinner.removeClass('is-active');
+                        }
+                    });
+                });
+            });
+            </script>
         </div>
         <?php
     }
