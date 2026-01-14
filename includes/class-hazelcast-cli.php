@@ -255,6 +255,163 @@ class Hazelcast_WP_CLI {
     }
 
     /**
+     * Install the object-cache.php drop-in.
+     *
+     * Creates a symlink (preferred) or copy of the drop-in file to enable
+     * Hazelcast object caching.
+     *
+     * ## OPTIONS
+     *
+     * [--force]
+     * : Overwrite an existing drop-in file, even if it belongs to another plugin.
+     *
+     * ## EXAMPLES
+     *
+     *     wp hazelcast install
+     *     wp hazelcast install --force
+     *
+     * @when after_wp_load
+     */
+    public function install( $args, $assoc_args ) {
+        $force   = WP_CLI\Utils\get_flag_value( $assoc_args, 'force', false );
+        $dropin  = WP_CONTENT_DIR . '/object-cache.php';
+        $source  = HAZELCAST_OBJECT_CACHE_DIR . 'includes/object-cache.php';
+
+        if ( ! file_exists( $source ) ) {
+            WP_CLI::error( 'Source file not found: ' . $source );
+        }
+
+        if ( file_exists( $dropin ) || is_link( $dropin ) ) {
+            $is_ours = $this->is_our_dropin( $dropin, $source );
+
+            if ( $is_ours && ! $force ) {
+                WP_CLI::success( 'Hazelcast object-cache.php drop-in is already installed.' );
+                return;
+            }
+
+            if ( ! $is_ours && ! $force ) {
+                WP_CLI::error( 'A different object-cache.php drop-in already exists. Use --force to overwrite.' );
+            }
+
+            if ( ! @unlink( $dropin ) ) {
+                $this->handle_permission_error( 'remove', $dropin );
+            }
+            WP_CLI::log( 'Removed existing drop-in.' );
+        }
+
+        if ( function_exists( 'symlink' ) ) {
+            if ( @symlink( $source, $dropin ) ) {
+                WP_CLI::success( 'Installed object-cache.php drop-in via symlink.' );
+                return;
+            }
+            WP_CLI::log( 'Symlink failed, attempting copy...' );
+        }
+
+        if ( @copy( $source, $dropin ) ) {
+            WP_CLI::success( 'Installed object-cache.php drop-in via copy.' );
+            return;
+        }
+
+        $this->handle_permission_error( 'write to', WP_CONTENT_DIR );
+    }
+
+    /**
+     * Uninstall the object-cache.php drop-in.
+     *
+     * Removes the drop-in file only if it belongs to this plugin.
+     *
+     * ## OPTIONS
+     *
+     * [--force]
+     * : Remove the drop-in even if it does not appear to belong to this plugin.
+     *
+     * ## EXAMPLES
+     *
+     *     wp hazelcast uninstall
+     *     wp hazelcast uninstall --force
+     *
+     * @when after_wp_load
+     */
+    public function uninstall( $args, $assoc_args ) {
+        $force   = WP_CLI\Utils\get_flag_value( $assoc_args, 'force', false );
+        $dropin  = WP_CONTENT_DIR . '/object-cache.php';
+        $source  = HAZELCAST_OBJECT_CACHE_DIR . 'includes/object-cache.php';
+
+        if ( ! file_exists( $dropin ) && ! is_link( $dropin ) ) {
+            WP_CLI::warning( 'No object-cache.php drop-in found.' );
+            return;
+        }
+
+        $is_ours = $this->is_our_dropin( $dropin, $source );
+
+        if ( ! $is_ours && ! $force ) {
+            WP_CLI::error( 'The installed drop-in does not belong to this plugin. Use --force to remove anyway.' );
+        }
+
+        if ( ! $is_ours && $force ) {
+            WP_CLI::warning( 'Removing drop-in that does not belong to this plugin (--force used).' );
+        }
+
+        if ( ! @unlink( $dropin ) ) {
+            $this->handle_permission_error( 'remove', $dropin );
+        }
+
+        delete_transient( 'hazelcast_dropin_install_failed' );
+
+        WP_CLI::success( 'Removed object-cache.php drop-in.' );
+    }
+
+    /**
+     * Checks if the drop-in belongs to this plugin.
+     *
+     * @param string $dropin Path to the drop-in file.
+     * @param string $source Path to the plugin's source file.
+     * @return bool True if the drop-in belongs to this plugin.
+     */
+    private function is_our_dropin( $dropin, $source ) {
+        if ( is_link( $dropin ) ) {
+            $link_target = readlink( $dropin );
+            if ( $link_target === $source || realpath( $link_target ) === realpath( $source ) ) {
+                return true;
+            }
+            return false;
+        }
+
+        if ( file_exists( $dropin ) && file_exists( $source ) ) {
+            if ( file_get_contents( $dropin ) === file_get_contents( $source ) ) {
+                return true;
+            }
+            $content = file_get_contents( $dropin );
+            if ( false !== $content && strpos( $content, 'Hazelcast_WP_Object_Cache' ) !== false ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Handles permission errors with helpful troubleshooting hints.
+     *
+     * @param string $action The action that failed (e.g., 'write to', 'remove').
+     * @param string $path   The path that could not be accessed.
+     */
+    private function handle_permission_error( $action, $path ) {
+        WP_CLI::error_multi_line( array(
+            sprintf( 'Failed to %s: %s', $action, $path ),
+            '',
+            'Troubleshooting:',
+            '  1. Check file/directory ownership and permissions.',
+            '  2. Try running with elevated privileges:',
+            sprintf( '     sudo -u www-data wp hazelcast %s', 'write to' === $action ? 'install' : 'uninstall' ),
+            '  3. Manually adjust permissions:',
+            sprintf( '     sudo chown %s:%s %s', get_current_user(), get_current_user(), dirname( $path ) ),
+            sprintf( '     sudo chmod 755 %s', dirname( $path ) ),
+        ) );
+        exit( 1 );
+    }
+
+    /**
      * Format uptime in human-readable format.
      *
      * @param int $seconds Uptime in seconds.
