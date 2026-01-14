@@ -116,13 +116,27 @@ class Hazelcast_WP_Object_Cache {
         }
     }
 
+    private function sanitize_key( $key ) {
+        $key = (string) $key;
+        return preg_replace( '/[\x00-\x20]/', '', $key );
+    }
+
     private function build_key( $key, $group = 'default' ) {
         if ( empty( $group ) ) {
             $group = 'default';
         }
-        $prefix  = in_array( $group, $this->global_groups, true ) ? '' : $this->blog_prefix . ':';
-        $version = $this->get_group_version( $group );
-        return $prefix . $group . ':v' . $version . ':' . $key;
+
+        $sanitized_key = $this->sanitize_key( $key );
+        $prefix        = in_array( $group, $this->global_groups, true ) ? '' : $this->blog_prefix . ':';
+        $version       = $this->get_group_version( $group );
+        $full_key      = $prefix . $group . ':v' . $version . ':' . $sanitized_key;
+
+        if ( strlen( $full_key ) > 250 ) {
+            $hashed_key = md5( $sanitized_key );
+            $full_key   = $prefix . $group . ':v' . $version . ':' . $hashed_key;
+        }
+
+        return $full_key;
     }
 
     private function get_group_version_key( $group ) {
