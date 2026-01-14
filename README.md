@@ -68,6 +68,31 @@ define('HAZELCAST_SERVERS', 'hz-node1:5701,hz-node2:5701,hz-node3:5701');
 // define('HAZELCAST_TLS_VERIFY_PEER', true);
 ```
 
+## Configuration Reference
+
+All configuration is done via PHP constants defined in `wp-config.php` (above the "That's all, stop editing!" line).
+
+| Constant | Type | Default | Description |
+|----------|------|---------|-------------|
+| `WP_CACHE` | bool | `false` | **Required.** Must be `true` to enable any object cache |
+| `HAZELCAST_SERVERS` | string | `'127.0.0.1:5701'` | Comma-separated list of Hazelcast server addresses (host:port) |
+| `HAZELCAST_USERNAME` | string | `null` | SASL username for authentication (Hazelcast Enterprise) |
+| `HAZELCAST_PASSWORD` | string | `null` | SASL password for authentication (Hazelcast Enterprise) |
+| `HAZELCAST_COMPRESSION` | bool | `true` | Enable data compression for cached values |
+| `HAZELCAST_KEY_PREFIX` | string | `'wp_' . md5(site_url()) . ':'` | Prefix for all cache keys (auto-generated if not set) |
+| `HAZELCAST_TIMEOUT` | int | `null` | Connection timeout in seconds |
+| `HAZELCAST_RETRY_TIMEOUT` | int | `null` | Seconds before retrying a failed server |
+| `HAZELCAST_SERIALIZER` | string | `'php'` | Serializer for cached data (`php` or `igbinary`) |
+| `HAZELCAST_TCP_NODELAY` | bool | `null` | Enable TCP_NODELAY socket option for reduced latency |
+| `HAZELCAST_DEBUG` | bool | `false` | Enable debug logging to PHP error log |
+| `HAZELCAST_FALLBACK_RETRY_INTERVAL` | int | `30` | Seconds between reconnection attempts when in fallback mode |
+| `HAZELCAST_CIRCUIT_BREAKER_THRESHOLD` | int | `5` | Consecutive failures before circuit breaker opens |
+| `HAZELCAST_TLS_ENABLED` | bool | `false` | Enable TLS/SSL encryption |
+| `HAZELCAST_TLS_CERT_PATH` | string | `null` | Path to client certificate file (PEM format) |
+| `HAZELCAST_TLS_KEY_PATH` | string | `null` | Path to client private key file (PEM format) |
+| `HAZELCAST_TLS_CA_PATH` | string | `null` | Path to CA certificate for server verification |
+| `HAZELCAST_TLS_VERIFY_PEER` | bool | `true` | Verify server certificate (disable only for testing) |
+
 ## TLS/SSL Configuration
 
 To enable encrypted connections between WordPress and your Hazelcast cluster:
