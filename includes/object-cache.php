@@ -32,6 +32,8 @@ class Hazelcast_WP_Object_Cache {
     private $fallback_mode = false;
     private $fallback_retry_interval = 30;
     private $last_connection_attempt = 0;
+    private $connection_failures = 0;
+    private $circuit_breaker_threshold = 5;
 
     public static function instance() {
         if ( ! isset( self::$instance ) ) {
@@ -131,6 +133,10 @@ class Hazelcast_WP_Object_Cache {
             ? (int) HAZELCAST_FALLBACK_RETRY_INTERVAL
             : 30;
 
+        $this->circuit_breaker_threshold = defined( 'HAZELCAST_CIRCUIT_BREAKER_THRESHOLD' )
+            ? (int) HAZELCAST_CIRCUIT_BREAKER_THRESHOLD
+            : 5;
+
         if ( ! $this->is_connected() ) {
             $this->set_last_error();
             $this->log( 'error', 'Failed to connect to Hazelcast cluster' );
@@ -139,18 +145,49 @@ class Hazelcast_WP_Object_Cache {
     }
 
     private function enter_fallback_mode() {
+        $this->connection_failures++;
+        $this->last_connection_attempt = time();
+
         if ( ! $this->fallback_mode ) {
-            $this->fallback_mode           = true;
-            $this->last_connection_attempt = time();
+            $this->fallback_mode = true;
             $this->log( 'warning', 'Entering fallback mode - using local cache only' );
+        }
+
+        if ( $this->connection_failures >= $this->circuit_breaker_threshold ) {
+            $this->log( 'warning', sprintf(
+                'Circuit breaker open after %d consecutive failures',
+                $this->connection_failures
+            ) );
         }
     }
 
     private function exit_fallback_mode() {
         if ( $this->fallback_mode ) {
-            $this->fallback_mode = false;
-            $this->log( 'info', 'Exiting fallback mode - Hazelcast connection restored' );
+            $this->fallback_mode       = false;
+            $this->connection_failures = 0;
+            $this->log( 'info', 'Exiting fallback mode - Hazelcast connection restored, circuit breaker reset' );
         }
+    }
+
+    private function reset_connection_failures() {
+        if ( $this->connection_failures > 0 && ! $this->fallback_mode ) {
+            $this->connection_failures = 0;
+            $this->log( 'debug', 'Connection failures reset after successful operation' );
+        }
+    }
+
+    private function should_attempt_connection() {
+        if ( $this->connection_failures < $this->circuit_breaker_threshold ) {
+            return true;
+        }
+
+        $now = time();
+        if ( ( $now - $this->last_connection_attempt ) >= $this->fallback_retry_interval ) {
+            $this->log( 'debug', 'Circuit breaker half-open - allowing connection attempt' );
+            return true;
+        }
+
+        return false;
     }
 
     private function maybe_retry_connection() {
@@ -158,12 +195,11 @@ class Hazelcast_WP_Object_Cache {
             return true;
         }
 
-        $now = time();
-        if ( ( $now - $this->last_connection_attempt ) < $this->fallback_retry_interval ) {
+        if ( ! $this->should_attempt_connection() ) {
             return false;
         }
 
-        $this->last_connection_attempt = $now;
+        $this->last_connection_attempt = time();
         $this->log( 'debug', 'Attempting to reconnect to Hazelcast cluster' );
 
         if ( $this->is_connected() ) {
@@ -171,9 +207,22 @@ class Hazelcast_WP_Object_Cache {
             return true;
         }
 
+        $this->connection_failures++;
         $this->set_last_error();
-        $this->log( 'debug', 'Reconnection attempt failed - remaining in fallback mode' );
+        $this->log( 'debug', sprintf(
+            'Reconnection attempt failed (failures: %d/%d) - remaining in fallback mode',
+            $this->connection_failures,
+            $this->circuit_breaker_threshold
+        ) );
         return false;
+    }
+
+    public function is_circuit_open() {
+        return $this->connection_failures >= $this->circuit_breaker_threshold;
+    }
+
+    public function get_connection_failures() {
+        return $this->connection_failures;
     }
 
     public function is_fallback_mode() {
@@ -807,7 +856,10 @@ class Hazelcast_WP_Object_Cache {
             'tls_cert_path'           => defined( 'HAZELCAST_TLS_CERT_PATH' ) ? HAZELCAST_TLS_CERT_PATH : null,
             'tls_key_path'            => defined( 'HAZELCAST_TLS_KEY_PATH' ) ? HAZELCAST_TLS_KEY_PATH : null,
             'tls_ca_path'             => defined( 'HAZELCAST_TLS_CA_PATH' ) ? HAZELCAST_TLS_CA_PATH : null,
-            'tls_verify_peer'         => defined( 'HAZELCAST_TLS_VERIFY_PEER' ) ? (bool) HAZELCAST_TLS_VERIFY_PEER : true,
+            'tls_verify_peer'              => defined( 'HAZELCAST_TLS_VERIFY_PEER' ) ? (bool) HAZELCAST_TLS_VERIFY_PEER : true,
+            'circuit_breaker_threshold'    => $this->circuit_breaker_threshold,
+            'circuit_breaker_open'         => $this->is_circuit_open(),
+            'connection_failures'          => $this->connection_failures,
         );
     }
 
@@ -902,4 +954,12 @@ function wp_cache_get_last_error() {
 
 function wp_cache_is_fallback_mode() {
     return Hazelcast_WP_Object_Cache::instance()->is_fallback_mode();
+}
+
+function wp_cache_is_circuit_open() {
+    return Hazelcast_WP_Object_Cache::instance()->is_circuit_open();
+}
+
+function wp_cache_get_connection_failures() {
+    return Hazelcast_WP_Object_Cache::instance()->get_connection_failures();
 }
