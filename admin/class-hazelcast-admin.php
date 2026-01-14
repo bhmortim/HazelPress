@@ -502,6 +502,22 @@ class Hazelcast_WP_Admin {
                         true,
                         __( 'Logs cache operations to error_log() for debugging. Set via HAZELCAST_DEBUG constant.', 'hazelcast-object-cache' )
                     );
+
+                    $retry_interval_value = sprintf( __( '%d seconds', 'hazelcast-object-cache' ), $fallback_retry_interval );
+                    $this->render_config_row(
+                        __( 'Fallback Retry Interval', 'hazelcast-object-cache' ),
+                        $retry_interval_value,
+                        true,
+                        __( 'Time between reconnection attempts when in fallback mode. Set via HAZELCAST_FALLBACK_RETRY_INTERVAL constant.', 'hazelcast-object-cache' )
+                    );
+
+                    $cb_threshold_value = sprintf( __( '%d failures', 'hazelcast-object-cache' ), $circuit_breaker_threshold );
+                    $this->render_config_row(
+                        __( 'Circuit Breaker Threshold', 'hazelcast-object-cache' ),
+                        $cb_threshold_value,
+                        true,
+                        __( 'Consecutive connection failures before circuit breaker opens and pauses reconnection attempts. Set via HAZELCAST_CIRCUIT_BREAKER_THRESHOLD constant.', 'hazelcast-object-cache' )
+                    );
                     ?>
                 </table>
             </div>
