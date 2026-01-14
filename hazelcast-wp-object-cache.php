@@ -36,6 +36,12 @@ if ( is_admin() ) {
     new Hazelcast_WP_Admin();
 }
 
+// Register WP-CLI commands if available.
+if ( defined( 'WP_CLI' ) && WP_CLI ) {
+    require_once HAZELCAST_OBJECT_CACHE_DIR . 'includes/class-hazelcast-cli.php';
+    WP_CLI::add_command( 'hazelcast', 'Hazelcast_WP_CLI' );
+}
+
 // Enable/drop the object-cache.php drop-in.
 function hazelcast_object_cache_enable() {
     $dropin = WP_CONTENT_DIR . '/object-cache.php';
