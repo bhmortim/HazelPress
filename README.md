@@ -201,6 +201,165 @@ wp hazelcast test
 
 **Output:** A table showing the status and latency for each operation (SET, GET, DELETE, TOTAL).
 
+### wp hazelcast install
+
+Install the `object-cache.php` drop-in file to enable Hazelcast caching.
+
+```bash
+# Install the drop-in (creates symlink or copy)
+wp hazelcast install
+
+# Force overwrite an existing drop-in from another plugin
+wp hazelcast install --force
+```
+
+| Option | Description |
+|--------|-------------|
+| `--force` | Overwrite an existing drop-in file, even if it belongs to another plugin |
+
+### wp hazelcast uninstall
+
+Remove the `object-cache.php` drop-in file to disable Hazelcast caching.
+
+```bash
+# Uninstall the drop-in
+wp hazelcast uninstall
+
+# Force removal even if the drop-in doesn't appear to belong to this plugin
+wp hazelcast uninstall --force
+```
+
+| Option | Description |
+|--------|-------------|
+| `--force` | Remove the drop-in even if it does not appear to belong to this plugin |
+
+## Troubleshooting
+
+### Understanding WordPress Drop-ins
+
+A **drop-in** is a special type of WordPress plugin that replaces core WordPress functionality. Unlike regular plugins (stored in `wp-content/plugins/`), drop-ins are single PHP files placed directly in the `wp-content/` directory.
+
+The `object-cache.php` drop-in replaces WordPress's default in-memory object cache with a persistent cache backend (in this case, Hazelcast). WordPress automatically loads this file if it exists, bypassing its built-in caching.
+
+**Key points:**
+- Only one `object-cache.php` can be active at a time
+- The file must be in `wp-content/object-cache.php` (not in a subdirectory)
+- WordPress loads it very early in the boot process
+
+### Verifying Drop-in Installation
+
+To check if the drop-in is correctly installed:
+
+```bash
+# Check if the file exists and view its type (symlink vs regular file)
+ls -la wp-content/object-cache.php
+
+# Expected output for symlink:
+# lrwxrwxrwx 1 www-data www-data ... object-cache.php -> /path/to/plugins/hazelcast-wp-object-cache/includes/object-cache.php
+
+# Expected output for file copy:
+# -rw-r--r-- 1 www-data www-data ... object-cache.php
+```
+
+You can also verify via WP-CLI:
+
+```bash
+wp hazelcast status
+```
+
+### Permission Issues (WP-CLI vs Web Server)
+
+A common issue occurs when WP-CLI runs as a different user than your web server. For example:
+- Web server runs as `www-data`
+- SSH/terminal user is `ubuntu` or `deploy`
+
+**Symptoms:**
+- Plugin activation via WordPress admin fails to create the drop-in
+- `wp hazelcast install` creates files owned by the wrong user
+- Web server cannot read/write to files created by WP-CLI
+
+**Solutions:**
+
+1. **Run WP-CLI as the web server user:**
+   ```bash
+   sudo -u www-data wp hazelcast install
+   ```
+
+2. **Fix ownership after installation:**
+   ```bash
+   sudo chown www-data:www-data wp-content/object-cache.php
+   ```
+
+3. **For shared hosting**, contact your host about correct file ownership, or use the manual installation method below.
+
+### Manual Drop-in Installation
+
+If automatic installation fails (due to permissions or other issues), install the drop-in manually:
+
+**Option 1: Symlink (Recommended)**
+
+Symlinks automatically stay updated when the plugin is updated:
+
+```bash
+# Navigate to your WordPress root
+cd /path/to/wordpress
+
+# Create the symlink
+ln -s wp-content/plugins/hazelcast-wp-object-cache/includes/object-cache.php wp-content/object-cache.php
+
+# Verify
+ls -la wp-content/object-cache.php
+```
+
+**Option 2: Copy**
+
+Use this if your hosting environment doesn't support symlinks:
+
+```bash
+# Navigate to your WordPress root
+cd /path/to/wordpress
+
+# Copy the file
+cp wp-content/plugins/hazelcast-wp-object-cache/includes/object-cache.php wp-content/object-cache.php
+
+# Verify
+ls -la wp-content/object-cache.php
+```
+
+> **Note:** If you copy the file, you must repeat this step after plugin updates to get bug fixes and new features.
+
+**Fix permissions after manual installation:**
+
+```bash
+# Set correct ownership (adjust user/group for your environment)
+sudo chown www-data:www-data wp-content/object-cache.php
+
+# Set correct permissions
+chmod 644 wp-content/object-cache.php
+```
+
+### Common Error Messages
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| "A different object-cache.php drop-in already exists" | Another caching plugin's drop-in is installed | Deactivate the other caching plugin first, or use `wp hazelcast install --force` |
+| "Failed to write to wp-content directory" | Insufficient permissions | Check directory ownership and permissions; see "Permission Issues" above |
+| "The object-cache.php symlink is broken" | Plugin was moved or deleted | Run `wp hazelcast install --force` to recreate the symlink |
+| "Hazelcast Object Cache requires the Memcached PECL extension" | PHP extension not installed | Install the Memcached extension: `pecl install memcached` |
+
+### Debug Logging
+
+Enable debug logging to troubleshoot connection issues:
+
+```php
+// In wp-config.php
+define('HAZELCAST_DEBUG', true);
+define('WP_DEBUG', true);
+define('WP_DEBUG_LOG', true);
+```
+
+Check the debug log at `wp-content/debug.log` for detailed error messages.
+
 ## Running Tests
 
 ### Unit Tests
