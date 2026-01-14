@@ -23,6 +23,7 @@ class Hazelcast_WP_Admin {
     private function __construct() {
         add_action( 'admin_menu', array( $this, 'add_admin_menu' ) );
         add_action( 'admin_init', array( $this, 'handle_flush_action' ) );
+        add_action( 'admin_init', array( $this, 'handle_flush_group_action' ) );
         add_action( 'wp_ajax_hazelcast_connection_test', array( $this, 'handle_connection_test' ) );
     }
 
@@ -133,6 +134,73 @@ class Hazelcast_WP_Admin {
                 'updated'
             );
         }
+    }
+
+    public function handle_flush_group_action() {
+        if ( ! isset( $_POST['hazelcast_flush_group'] ) ) {
+            return;
+        }
+
+        if ( ! current_user_can( 'manage_options' ) ) {
+            return;
+        }
+
+        if ( ! isset( $_POST['hazelcast_flush_group_nonce'] ) ||
+             ! wp_verify_nonce( sanitize_key( $_POST['hazelcast_flush_group_nonce'] ), 'hazelcast_flush_group' ) ) {
+            return;
+        }
+
+        $group = isset( $_POST['hazelcast_cache_group'] ) ? sanitize_key( $_POST['hazelcast_cache_group'] ) : '';
+
+        if ( empty( $group ) ) {
+            add_settings_error(
+                'hazelcast_messages',
+                'hazelcast_flush_group_error',
+                __( 'Please select a cache group to flush.', 'hazelcast-object-cache' ),
+                'error'
+            );
+            return;
+        }
+
+        $allowed_groups = $this->get_flushable_groups();
+        if ( ! isset( $allowed_groups[ $group ] ) ) {
+            add_settings_error(
+                'hazelcast_messages',
+                'hazelcast_flush_group_error',
+                __( 'Invalid cache group selected.', 'hazelcast-object-cache' ),
+                'error'
+            );
+            return;
+        }
+
+        if ( function_exists( 'wp_cache_flush_group' ) ) {
+            wp_cache_flush_group( $group );
+            add_settings_error(
+                'hazelcast_messages',
+                'hazelcast_group_flushed',
+                sprintf(
+                    /* translators: %s: cache group name */
+                    __( 'Cache group "%s" flushed successfully.', 'hazelcast-object-cache' ),
+                    esc_html( $allowed_groups[ $group ] )
+                ),
+                'updated'
+            );
+        }
+    }
+
+    private function get_flushable_groups() {
+        return array(
+            'options'        => __( 'Options', 'hazelcast-object-cache' ),
+            'posts'          => __( 'Posts', 'hazelcast-object-cache' ),
+            'terms'          => __( 'Terms', 'hazelcast-object-cache' ),
+            'users'          => __( 'Users', 'hazelcast-object-cache' ),
+            'transient'      => __( 'Transients', 'hazelcast-object-cache' ),
+            'site-transient' => __( 'Site Transients', 'hazelcast-object-cache' ),
+            'comment'        => __( 'Comments', 'hazelcast-object-cache' ),
+            'counts'         => __( 'Counts', 'hazelcast-object-cache' ),
+            'plugins'        => __( 'Plugins', 'hazelcast-object-cache' ),
+            'themes'         => __( 'Themes', 'hazelcast-object-cache' ),
+        );
     }
 
     public function render_admin_page() {
@@ -349,6 +417,25 @@ class Hazelcast_WP_Admin {
                     </p>
                     <p class="description">
                         <?php esc_html_e( 'This will clear all cached data from the Hazelcast cluster.', 'hazelcast-object-cache' ); ?>
+                    </p>
+                </form>
+                <hr />
+                <h3><?php esc_html_e( 'Selective Group Flush', 'hazelcast-object-cache' ); ?></h3>
+                <form method="post" action="">
+                    <?php wp_nonce_field( 'hazelcast_flush_group', 'hazelcast_flush_group_nonce' ); ?>
+                    <p>
+                        <label for="hazelcast_cache_group"><?php esc_html_e( 'Select Group:', 'hazelcast-object-cache' ); ?></label>
+                        <select name="hazelcast_cache_group" id="hazelcast_cache_group">
+                            <option value=""><?php esc_html_e( '— Select a group —', 'hazelcast-object-cache' ); ?></option>
+                            <?php foreach ( $this->get_flushable_groups() as $group_key => $group_label ) : ?>
+                                <option value="<?php echo esc_attr( $group_key ); ?>"><?php echo esc_html( $group_label ); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <input type="submit" name="hazelcast_flush_group" class="button button-secondary"
+                               value="<?php esc_attr_e( 'Flush Group', 'hazelcast-object-cache' ); ?>" />
+                    </p>
+                    <p class="description">
+                        <?php esc_html_e( 'Invalidates all cached data for the selected group using group versioning.', 'hazelcast-object-cache' ); ?>
                     </p>
                 </form>
                 <hr />

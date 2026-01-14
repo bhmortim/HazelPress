@@ -22,6 +22,7 @@ class Hazelcast_WP_Object_Cache {
     private $memcached;
     private $global_groups = array();
     private $non_persistent_groups = array();
+    private $group_versions = array();
     private $cache = array();
     private $cache_hits = 0;
     private $cache_misses = 0;
@@ -91,8 +92,36 @@ class Hazelcast_WP_Object_Cache {
         if ( empty( $group ) ) {
             $group = 'default';
         }
+        $prefix  = in_array( $group, $this->global_groups, true ) ? '' : $this->blog_prefix . ':';
+        $version = $this->get_group_version( $group );
+        return $prefix . $group . ':v' . $version . ':' . $key;
+    }
+
+    private function get_group_version_key( $group ) {
         $prefix = in_array( $group, $this->global_groups, true ) ? '' : $this->blog_prefix . ':';
-        return $prefix . $group . ':' . $key;
+        return $prefix . '_group_version:' . $group;
+    }
+
+    private function get_group_version( $group ) {
+        if ( isset( $this->group_versions[ $group ] ) ) {
+            return $this->group_versions[ $group ];
+        }
+
+        if ( $this->is_non_persistent( $group ) ) {
+            $this->group_versions[ $group ] = 1;
+            return 1;
+        }
+
+        $version_key = $this->get_group_version_key( $group );
+        $version     = $this->memcached->get( $version_key );
+
+        if ( false === $version || Memcached::RES_SUCCESS !== $this->memcached->getResultCode() ) {
+            $this->group_versions[ $group ] = 1;
+            return 1;
+        }
+
+        $this->group_versions[ $group ] = (int) $version;
+        return $this->group_versions[ $group ];
     }
 
     private function is_non_persistent( $group ) {
@@ -279,8 +308,38 @@ class Hazelcast_WP_Object_Cache {
     }
 
     public function flush() {
-        $this->cache = array();
+        $this->cache          = array();
+        $this->group_versions = array();
         return $this->memcached->flush();
+    }
+
+    public function flush_group( $group ) {
+        if ( empty( $group ) ) {
+            $group = 'default';
+        }
+
+        $prefix = in_array( $group, $this->global_groups, true ) ? '' : $this->blog_prefix . ':';
+
+        foreach ( array_keys( $this->cache ) as $key ) {
+            if ( strpos( $key, $prefix . $group . ':' ) === 0 ) {
+                unset( $this->cache[ $key ] );
+            }
+        }
+
+        unset( $this->group_versions[ $group ] );
+
+        if ( $this->is_non_persistent( $group ) ) {
+            return true;
+        }
+
+        $version_key = $this->get_group_version_key( $group );
+        $result      = $this->memcached->increment( $version_key, 1 );
+
+        if ( false === $result ) {
+            return $this->memcached->set( $version_key, 2, 0 );
+        }
+
+        return true;
     }
 
     public function incr( $key, $offset = 1, $group = 'default' ) {
@@ -509,4 +568,8 @@ function wp_cache_is_connected() {
 
 function wp_cache_get_config() {
     return Hazelcast_WP_Object_Cache::instance()->get_config();
+}
+
+function wp_cache_flush_group( $group ) {
+    return Hazelcast_WP_Object_Cache::instance()->flush_group( $group );
 }
