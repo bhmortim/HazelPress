@@ -21,8 +21,38 @@ class Hazelcast_WP_CLI {
      * @when after_wp_load
      */
     public function status( $args, $assoc_args ) {
+        $dropin = WP_CONTENT_DIR . '/object-cache.php';
+        $source = HAZELCAST_OBJECT_CACHE_DIR . 'includes/object-cache.php';
+
+        WP_CLI::line( '' );
+        WP_CLI::line( WP_CLI::colorize( '%BDrop-in Status:%n' ) );
+
+        if ( ! file_exists( $dropin ) && ! is_link( $dropin ) ) {
+            WP_CLI::line( WP_CLI::colorize( '  %rNot installed%n' ) );
+            WP_CLI::line( '' );
+            WP_CLI::line( '  To enable caching, run:' );
+            WP_CLI::line( WP_CLI::colorize( '    %gwp hazelcast install%n' ) );
+            WP_CLI::line( '' );
+            WP_CLI::line( '  Or manually create a symlink:' );
+            WP_CLI::line( '    ln -s ' . $source . ' ' . $dropin );
+        } elseif ( is_link( $dropin ) && ! file_exists( $dropin ) ) {
+            WP_CLI::line( WP_CLI::colorize( '  %rBroken symlink%n' ) );
+            WP_CLI::line( '' );
+            WP_CLI::line( '  To fix, run:' );
+            WP_CLI::line( WP_CLI::colorize( '    %gwp hazelcast install --force%n' ) );
+        } elseif ( $this->is_our_dropin( $dropin, $source ) ) {
+            $type = is_link( $dropin ) ? 'Symlink' : 'File copy';
+            WP_CLI::line( WP_CLI::colorize( '  %gInstalled%n' ) . ' (' . $type . ')' );
+        } else {
+            WP_CLI::line( WP_CLI::colorize( '  %yDifferent drop-in installed%n' ) );
+            WP_CLI::line( '' );
+            WP_CLI::line( '  To replace with Hazelcast, run:' );
+            WP_CLI::line( WP_CLI::colorize( '    %gwp hazelcast install --force%n' ) );
+        }
+
         if ( ! class_exists( 'Hazelcast_WP_Object_Cache' ) ) {
-            WP_CLI::error( 'Hazelcast Object Cache is not loaded.' );
+            WP_CLI::line( '' );
+            WP_CLI::error( 'Hazelcast Object Cache class is not loaded. Ensure the drop-in is installed.' );
         }
 
         $cache      = Hazelcast_WP_Object_Cache::instance();
