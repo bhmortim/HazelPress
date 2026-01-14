@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   hazelcast:
-    image: hazelcast/hazelcast:5.3
+    image: hazelcast/hazelcast:5.6
     container_name: hazelcast-wp-test
     ports:
       - "5701:5701"
