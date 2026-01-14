@@ -208,26 +208,32 @@ class Hazelcast_WP_Admin {
             return;
         }
 
-        $stats      = array(
+        $stats               = array(
             'hits'         => 0,
             'misses'       => 0,
             'hit_ratio'    => 0,
             'uptime'       => 0,
             'server_stats' => array(),
         );
-        $servers    = array();
-        $connected  = false;
-        $last_error = '';
+        $servers             = array();
+        $connected           = false;
+        $last_error          = '';
+        $fallback_mode       = false;
+        $circuit_open        = false;
+        $connection_failures = 0;
 
         if ( function_exists( 'wp_cache_get_stats' ) ) {
             $stats = wp_cache_get_stats();
         }
 
         if ( class_exists( 'Hazelcast_WP_Object_Cache' ) ) {
-            $cache      = Hazelcast_WP_Object_Cache::instance();
-            $servers    = $cache->get_servers();
-            $connected  = $cache->is_connected();
-            $last_error = $cache->get_last_error();
+            $cache               = Hazelcast_WP_Object_Cache::instance();
+            $servers             = $cache->get_servers();
+            $connected           = $cache->is_connected();
+            $last_error          = $cache->get_last_error();
+            $fallback_mode       = $cache->is_fallback_mode();
+            $circuit_open        = $cache->is_circuit_open();
+            $connection_failures = $cache->get_connection_failures();
         }
 
         $ratio  = $stats['hit_ratio'];
@@ -277,9 +283,75 @@ class Hazelcast_WP_Admin {
             </div>
 
             <?php
-            $dropin_status = $this->get_dropin_status();
-            $config        = function_exists( 'wp_cache_get_config' ) ? wp_cache_get_config() : array();
+            $dropin_status              = $this->get_dropin_status();
+            $config                     = function_exists( 'wp_cache_get_config' ) ? wp_cache_get_config() : array();
+            $fallback_retry_interval    = $config['fallback_retry_interval'] ?? 30;
+            $circuit_breaker_threshold  = $config['circuit_breaker_threshold'] ?? 5;
             ?>
+
+            <div class="card">
+                <h2><?php esc_html_e( 'Connection Health', 'hazelcast-object-cache' ); ?></h2>
+                <table class="form-table">
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Fallback Mode', 'hazelcast-object-cache' ); ?></th>
+                        <td>
+                            <?php if ( $fallback_mode ) : ?>
+                                <span style="color: red;">&#10007; <?php esc_html_e( 'Active', 'hazelcast-object-cache' ); ?></span>
+                                <p class="description"><?php esc_html_e( 'Cache operations are using local memory only. Hazelcast cluster is unreachable.', 'hazelcast-object-cache' ); ?></p>
+                            <?php else : ?>
+                                <span style="color: green;">&#10003; <?php esc_html_e( 'Inactive', 'hazelcast-object-cache' ); ?></span>
+                                <p class="description"><?php esc_html_e( 'Cache is operating normally with Hazelcast cluster.', 'hazelcast-object-cache' ); ?></p>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Circuit Breaker', 'hazelcast-object-cache' ); ?></th>
+                        <td>
+                            <?php if ( $circuit_open ) : ?>
+                                <span style="color: red;">&#10007; <?php esc_html_e( 'Open', 'hazelcast-object-cache' ); ?></span>
+                                <p class="description"><?php esc_html_e( 'Connection attempts are paused to prevent cascading failures.', 'hazelcast-object-cache' ); ?></p>
+                            <?php else : ?>
+                                <span style="color: green;">&#10003; <?php esc_html_e( 'Closed', 'hazelcast-object-cache' ); ?></span>
+                                <p class="description"><?php esc_html_e( 'Connection attempts are allowed normally.', 'hazelcast-object-cache' ); ?></p>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Connection Failures', 'hazelcast-object-cache' ); ?></th>
+                        <td>
+                            <?php
+                            $failure_style = 'color: green;';
+                            if ( $connection_failures > 0 && $connection_failures < $circuit_breaker_threshold ) {
+                                $failure_style = 'color: orange;';
+                            } elseif ( $connection_failures >= $circuit_breaker_threshold ) {
+                                $failure_style = 'color: red;';
+                            }
+                            ?>
+                            <span style="<?php echo esc_attr( $failure_style ); ?>">
+                                <strong><?php echo esc_html( $connection_failures ); ?></strong> / <?php echo esc_html( $circuit_breaker_threshold ); ?>
+                            </span>
+                            <p class="description">
+                                <?php esc_html_e( 'Consecutive failures before circuit breaker opens.', 'hazelcast-object-cache' ); ?>
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Retry Interval', 'hazelcast-object-cache' ); ?></th>
+                        <td>
+                            <strong><?php printf( esc_html__( '%d seconds', 'hazelcast-object-cache' ), $fallback_retry_interval ); ?></strong>
+                            <p class="description"><?php esc_html_e( 'Time between reconnection attempts in fallback mode. Set via HAZELCAST_FALLBACK_RETRY_INTERVAL constant.', 'hazelcast-object-cache' ); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Circuit Breaker Threshold', 'hazelcast-object-cache' ); ?></th>
+                        <td>
+                            <strong><?php echo esc_html( $circuit_breaker_threshold ); ?> <?php esc_html_e( 'failures', 'hazelcast-object-cache' ); ?></strong>
+                            <p class="description"><?php esc_html_e( 'Maximum consecutive failures before circuit opens. Set via HAZELCAST_CIRCUIT_BREAKER_THRESHOLD constant.', 'hazelcast-object-cache' ); ?></p>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+
             <div class="card">
                 <h2><?php esc_html_e( 'Configuration', 'hazelcast-object-cache' ); ?></h2>
                 <table class="form-table">
