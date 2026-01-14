@@ -20,6 +20,10 @@ This enables enterprise-grade distributed caching for high-traffic WordPress sit
 - Graceful fallback and error handling
 - Open source under Apache 2.0
 
+## Documentation
+
+- **[Hazelcast Server Configuration](docs/hazelcast-configuration.md)** - Recommended IMap settings, eviction policies, and complete `hazelcast.xml`/`hazelcast.yaml` examples
+
 ## Requirements
 
 - WordPress 6.0 or higher
