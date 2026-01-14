@@ -1,0 +1,9 @@
+# WordPress
+wp-content/uploads/*
+wp-config.php
+
+# General
+.DS_Store
+Thumbs.db
+node_modules/
+*.log
