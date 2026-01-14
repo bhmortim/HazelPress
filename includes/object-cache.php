@@ -29,6 +29,9 @@ class Hazelcast_WP_Object_Cache {
     private $blog_prefix;
     private $debug = false;
     private $last_error = '';
+    private $fallback_mode = false;
+    private $fallback_retry_interval = 30;
+    private $last_connection_attempt = 0;
 
     public static function instance() {
         if ( ! isset( self::$instance ) ) {
@@ -92,11 +95,57 @@ class Hazelcast_WP_Object_Cache {
             $this->log( 'info', 'Initialized connection to servers: ' . implode( ', ', $servers ) );
         }
 
+        $this->fallback_retry_interval = defined( 'HAZELCAST_FALLBACK_RETRY_INTERVAL' )
+            ? (int) HAZELCAST_FALLBACK_RETRY_INTERVAL
+            : 30;
+
         if ( ! $this->is_connected() ) {
             $this->set_last_error();
             $this->log( 'error', 'Failed to connect to Hazelcast cluster' );
+            $this->enter_fallback_mode();
         }
     }
+
+    private function enter_fallback_mode() {
+        if ( ! $this->fallback_mode ) {
+            $this->fallback_mode           = true;
+            $this->last_connection_attempt = time();
+            $this->log( 'warning', 'Entering fallback mode - using local cache only' );
+        }
+    }
+
+    private function exit_fallback_mode() {
+        if ( $this->fallback_mode ) {
+            $this->fallback_mode = false;
+            $this->log( 'info', 'Exiting fallback mode - Hazelcast connection restored' );
+        }
+    }
+
+    private function maybe_retry_connection() {
+        if ( ! $this->fallback_mode ) {
+            return true;
+        }
+
+        $now = time();
+        if ( ( $now - $this->last_connection_attempt ) < $this->fallback_retry_interval ) {
+            return false;
+        }
+
+        $this->last_connection_attempt = $now;
+        $this->log( 'debug', 'Attempting to reconnect to Hazelcast cluster' );
+
+        if ( $this->is_connected() ) {
+            $this->exit_fallback_mode();
+            return true;
+        }
+
+        $this->set_last_error();
+        $this->log( 'debug', 'Reconnection attempt failed - remaining in fallback mode' );
+        return false;
+    }
+
+    public function is_fallback_mode() {
+        return $this->fallback_mode;
 
     private function log( $level, $message ) {
         if ( ! $this->debug ) {
@@ -185,11 +234,28 @@ class Hazelcast_WP_Object_Cache {
             return true;
         }
 
+        if ( ! $this->maybe_retry_connection() ) {
+            if ( isset( $this->cache[ $full_key ] ) ) {
+                return false;
+            }
+            $this->cache[ $full_key ] = $data;
+            return true;
+        }
+
         $result = $this->memcached->add( $full_key, $data, (int) $expire );
         if ( $result ) {
             $this->cache[ $full_key ] = $data;
             $this->log( 'debug', sprintf( 'ADD %s (group: %s)', $key, $group ) );
         } else {
+            $code = $this->memcached->getResultCode();
+            if ( Memcached::RES_SUCCESS !== $code && Memcached::RES_NOTSTORED !== $code ) {
+                $this->enter_fallback_mode();
+                if ( ! isset( $this->cache[ $full_key ] ) ) {
+                    $this->cache[ $full_key ] = $data;
+                    return true;
+                }
+                return false;
+            }
             $this->set_last_error();
             $this->log( 'debug', sprintf( 'ADD FAILED %s (group: %s) - %s', $key, $group, $this->last_error ) );
         }
@@ -220,6 +286,17 @@ class Hazelcast_WP_Object_Cache {
             return $this->cache[ $full_key ];
         }
 
+        if ( ! $this->maybe_retry_connection() ) {
+            if ( isset( $this->cache[ $full_key ] ) ) {
+                $found = true;
+                $this->cache_hits++;
+                return $this->cache[ $full_key ];
+            }
+            $found = false;
+            $this->cache_misses++;
+            return false;
+        }
+
         $data        = $this->memcached->get( $full_key );
         $result_code = $this->memcached->getResultCode();
 
@@ -229,6 +306,15 @@ class Hazelcast_WP_Object_Cache {
             $this->cache[ $full_key ] = $data;
             $this->log( 'debug', sprintf( 'GET HIT %s (group: %s, source: memcached)', $key, $group ) );
             return $data;
+        }
+
+        if ( Memcached::RES_NOTFOUND !== $result_code ) {
+            $this->enter_fallback_mode();
+            if ( isset( $this->cache[ $full_key ] ) ) {
+                $found = true;
+                $this->cache_hits++;
+                return $this->cache[ $full_key ];
+            }
         }
 
         $found = false;
@@ -286,13 +372,21 @@ class Hazelcast_WP_Object_Cache {
             return true;
         }
 
+        if ( ! $this->maybe_retry_connection() ) {
+            $this->cache[ $full_key ] = $data;
+            return true;
+        }
+
         $result = $this->memcached->set( $full_key, $data, (int) $expire );
         if ( $result ) {
             $this->cache[ $full_key ] = $data;
             $this->log( 'debug', sprintf( 'SET %s (group: %s, expire: %d)', $key, $group, $expire ) );
         } else {
             $this->set_last_error();
-            $this->log( 'error', sprintf( 'SET FAILED %s (group: %s) - %s', $key, $group, $this->last_error ) );
+            $this->enter_fallback_mode();
+            $this->cache[ $full_key ] = $data;
+            $this->log( 'error', sprintf( 'SET FAILED %s (group: %s) - %s, using fallback', $key, $group, $this->last_error ) );
+            return true;
         }
         return $result;
     }
@@ -309,10 +403,19 @@ class Hazelcast_WP_Object_Cache {
             return true;
         }
 
+        if ( ! $this->maybe_retry_connection() ) {
+            return true;
+        }
+
         $result = $this->memcached->delete( $full_key );
         if ( $result ) {
             $this->log( 'debug', sprintf( 'DELETE %s (group: %s)', $key, $group ) );
         } else {
+            $code = $this->memcached->getResultCode();
+            if ( Memcached::RES_NOTFOUND !== $code ) {
+                $this->enter_fallback_mode();
+                return true;
+            }
             $this->set_last_error();
             $this->log( 'debug', sprintf( 'DELETE FAILED %s (group: %s) - %s', $key, $group, $this->last_error ) );
         }
@@ -334,11 +437,27 @@ class Hazelcast_WP_Object_Cache {
             return true;
         }
 
+        if ( ! $this->maybe_retry_connection() ) {
+            if ( ! isset( $this->cache[ $full_key ] ) ) {
+                return false;
+            }
+            $this->cache[ $full_key ] = $data;
+            return true;
+        }
+
         $result = $this->memcached->replace( $full_key, $data, (int) $expire );
         if ( $result ) {
             $this->cache[ $full_key ] = $data;
             $this->log( 'debug', sprintf( 'REPLACE %s (group: %s)', $key, $group ) );
         } else {
+            $code = $this->memcached->getResultCode();
+            if ( Memcached::RES_NOTSTORED !== $code ) {
+                $this->enter_fallback_mode();
+                if ( isset( $this->cache[ $full_key ] ) ) {
+                    $this->cache[ $full_key ] = $data;
+                    return true;
+                }
+            }
             $this->set_last_error();
             $this->log( 'debug', sprintf( 'REPLACE FAILED %s (group: %s) - %s', $key, $group, $this->last_error ) );
         }
@@ -364,11 +483,27 @@ class Hazelcast_WP_Object_Cache {
             return false;
         }
 
+        if ( ! $this->maybe_retry_connection() ) {
+            if ( ! isset( $this->cache[ $full_key ] ) ) {
+                return false;
+            }
+            $this->cache[ $full_key ] = $data;
+            return true;
+        }
+
         $result = $this->memcached->cas( (float) $cas_token, $full_key, $data, (int) $expire );
         if ( $result ) {
             $this->cache[ $full_key ] = $data;
             $this->log( 'debug', sprintf( 'CAS %s (group: %s)', $key, $group ) );
         } else {
+            $code = $this->memcached->getResultCode();
+            if ( Memcached::RES_DATA_EXISTS !== $code && Memcached::RES_NOTFOUND !== $code ) {
+                $this->enter_fallback_mode();
+                if ( isset( $this->cache[ $full_key ] ) ) {
+                    $this->cache[ $full_key ] = $data;
+                    return true;
+                }
+            }
             $this->set_last_error();
             $this->log( 'debug', sprintf( 'CAS FAILED %s (group: %s) - %s', $key, $group, $this->last_error ) );
         }
@@ -378,12 +513,20 @@ class Hazelcast_WP_Object_Cache {
     public function flush() {
         $this->cache          = array();
         $this->group_versions = array();
-        $result               = $this->memcached->flush();
+
+        if ( ! $this->maybe_retry_connection() ) {
+            $this->log( 'info', 'FLUSH - Local cache flushed (fallback mode)' );
+            return true;
+        }
+
+        $result = $this->memcached->flush();
         if ( $result ) {
             $this->log( 'info', 'FLUSH - Cache flushed successfully' );
         } else {
             $this->set_last_error();
-            $this->log( 'error', 'FLUSH FAILED - ' . $this->last_error );
+            $this->enter_fallback_mode();
+            $this->log( 'error', 'FLUSH FAILED - ' . $this->last_error . ', local cache cleared' );
+            return true;
         }
         return $result;
     }
@@ -407,10 +550,19 @@ class Hazelcast_WP_Object_Cache {
             return true;
         }
 
+        if ( ! $this->maybe_retry_connection() ) {
+            return true;
+        }
+
         $version_key = $this->get_group_version_key( $group );
         $result      = $this->memcached->increment( $version_key, 1 );
 
         if ( false === $result ) {
+            $code = $this->memcached->getResultCode();
+            if ( Memcached::RES_NOTFOUND !== $code ) {
+                $this->enter_fallback_mode();
+                return true;
+            }
             return $this->memcached->set( $version_key, 2, 0 );
         }
 
@@ -435,9 +587,32 @@ class Hazelcast_WP_Object_Cache {
             return $this->cache[ $full_key ];
         }
 
+        if ( ! $this->maybe_retry_connection() ) {
+            if ( ! isset( $this->cache[ $full_key ] ) || ! is_numeric( $this->cache[ $full_key ] ) ) {
+                return false;
+            }
+            $this->cache[ $full_key ] += (int) $offset;
+            if ( $this->cache[ $full_key ] < 0 ) {
+                $this->cache[ $full_key ] = 0;
+            }
+            return $this->cache[ $full_key ];
+        }
+
         $result = $this->memcached->increment( $full_key, (int) $offset );
         if ( false !== $result ) {
             $this->cache[ $full_key ] = $result;
+        } else {
+            $code = $this->memcached->getResultCode();
+            if ( Memcached::RES_NOTFOUND !== $code ) {
+                $this->enter_fallback_mode();
+                if ( isset( $this->cache[ $full_key ] ) && is_numeric( $this->cache[ $full_key ] ) ) {
+                    $this->cache[ $full_key ] += (int) $offset;
+                    if ( $this->cache[ $full_key ] < 0 ) {
+                        $this->cache[ $full_key ] = 0;
+                    }
+                    return $this->cache[ $full_key ];
+                }
+            }
         }
         return $result;
     }
@@ -460,9 +635,32 @@ class Hazelcast_WP_Object_Cache {
             return $this->cache[ $full_key ];
         }
 
+        if ( ! $this->maybe_retry_connection() ) {
+            if ( ! isset( $this->cache[ $full_key ] ) || ! is_numeric( $this->cache[ $full_key ] ) ) {
+                return false;
+            }
+            $this->cache[ $full_key ] -= (int) $offset;
+            if ( $this->cache[ $full_key ] < 0 ) {
+                $this->cache[ $full_key ] = 0;
+            }
+            return $this->cache[ $full_key ];
+        }
+
         $result = $this->memcached->decrement( $full_key, (int) $offset );
         if ( false !== $result ) {
             $this->cache[ $full_key ] = $result;
+        } else {
+            $code = $this->memcached->getResultCode();
+            if ( Memcached::RES_NOTFOUND !== $code ) {
+                $this->enter_fallback_mode();
+                if ( isset( $this->cache[ $full_key ] ) && is_numeric( $this->cache[ $full_key ] ) ) {
+                    $this->cache[ $full_key ] -= (int) $offset;
+                    if ( $this->cache[ $full_key ] < 0 ) {
+                        $this->cache[ $full_key ] = 0;
+                    }
+                    return $this->cache[ $full_key ];
+                }
+            }
         }
         return $result;
     }
@@ -564,8 +762,10 @@ class Hazelcast_WP_Object_Cache {
             'retry_timeout'  => defined( 'HAZELCAST_RETRY_TIMEOUT' ) ? (int) HAZELCAST_RETRY_TIMEOUT : null,
             'serializer'     => $serializer,
             'tcp_nodelay'    => defined( 'HAZELCAST_TCP_NODELAY' ) ? (bool) HAZELCAST_TCP_NODELAY : null,
-            'authentication' => defined( 'HAZELCAST_USERNAME' ) && defined( 'HAZELCAST_PASSWORD' ),
-            'debug'          => defined( 'HAZELCAST_DEBUG' ) ? (bool) HAZELCAST_DEBUG : false,
+            'authentication'          => defined( 'HAZELCAST_USERNAME' ) && defined( 'HAZELCAST_PASSWORD' ),
+            'debug'                   => defined( 'HAZELCAST_DEBUG' ) ? (bool) HAZELCAST_DEBUG : false,
+            'fallback_retry_interval' => $this->fallback_retry_interval,
+            'fallback_mode'           => $this->fallback_mode,
         );
     }
 
@@ -656,4 +856,8 @@ function wp_cache_flush_group( $group ) {
 
 function wp_cache_get_last_error() {
     return Hazelcast_WP_Object_Cache::instance()->get_last_error();
+}
+
+function wp_cache_is_fallback_mode() {
+    return Hazelcast_WP_Object_Cache::instance()->is_fallback_mode();
 }
