@@ -136,6 +136,71 @@ define('HAZELCAST_TLS_VERIFY_PEER', true);
 2. **Connection failures**: Verify certificate paths exist and are readable by PHP
 3. **Certificate errors**: Ensure the CA certificate matches your Hazelcast server's certificate chain
 
+## WP-CLI Commands
+
+The plugin provides WP-CLI commands for managing and monitoring the Hazelcast object cache from the command line.
+
+### wp hazelcast status
+
+Display cache connection status, server list, statistics, and configuration.
+
+```bash
+wp hazelcast status
+```
+
+**Output includes:**
+- Connection status
+- Configured servers
+- Cache hits/misses and hit ratio
+- Current configuration settings
+
+### wp hazelcast flush
+
+Flush the entire object cache or a specific cache group.
+
+```bash
+# Flush entire cache
+wp hazelcast flush
+
+# Flush a specific group
+wp hazelcast flush --group=options
+wp hazelcast flush --group=posts
+```
+
+| Option | Description |
+|--------|-------------|
+| `--group=<group>` | Flush only the specified cache group instead of the entire cache |
+
+### wp hazelcast get
+
+Retrieve and display a cached value.
+
+```bash
+# Get a key from the default group
+wp hazelcast get my_key
+
+# Get a key from a specific group
+wp hazelcast get my_key --group=options
+
+# Output as JSON
+wp hazelcast get my_key --format=json
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--group=<group>` | `default` | The cache group to retrieve from |
+| `--format=<format>` | `dump` | Output format: `dump`, `json`, or `serialize` |
+
+### wp hazelcast test
+
+Run a connection test by performing a set/get/delete cycle to verify connectivity and measure latency.
+
+```bash
+wp hazelcast test
+```
+
+**Output:** A table showing the status and latency for each operation (SET, GET, DELETE, TOTAL).
+
 ## Running Tests
 
 ### Unit Tests
