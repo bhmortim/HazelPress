@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  hazelcast:
+    image: hazelcast/hazelcast:5.3
+    container_name: hazelcast-wp-test
+    ports:
+      - "5701:5701"
+    environment:
+      - HZ_NETWORK_MEMCACHEPROTOCOL_ENABLED=true
+      - HZ_CLUSTERNAME=dev
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5701/hazelcast/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s

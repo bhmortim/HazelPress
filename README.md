@@ -55,3 +55,43 @@ define('HAZELCAST_SERVERS', 'hz-node1:5701,hz-node2:5701,hz-node3:5701');
 
 // Optional: Enable compression (default: true)
 // define('HAZELCAST_COMPRESSION', true);
+```
+
+## Running Tests
+
+### Unit Tests
+
+Run unit tests with the mock Memcached class:
+
+```bash
+composer install
+./vendor/bin/phpunit --testsuite unit
+```
+
+### Integration Tests
+
+Integration tests run against a real Hazelcast instance. You need Docker and the Memcached PECL extension installed.
+
+1. **Start Hazelcast container:**
+   ```bash
+   docker-compose up -d
+   ```
+
+2. **Wait for Hazelcast to be ready** (about 30 seconds):
+   ```bash
+   docker-compose ps
+   ```
+
+3. **Run integration tests:**
+   ```bash
+   ./vendor/bin/phpunit tests/integration/class-integration-test.php
+   ```
+
+4. **Stop the container when done:**
+   ```bash
+   docker-compose down
+   ```
+
+The integration tests will be skipped automatically if:
+- The Memcached PECL extension is not installed
+- Hazelcast is not running on `127.0.0.1:5701`
