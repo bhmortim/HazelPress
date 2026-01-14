@@ -137,6 +137,42 @@ class Hazelcast_WP_Object_Cache {
         return false;
     }
 
+    public function get_with_cas( $key, $group = 'default', &$cas_token = null, $force = false, &$found = null ) {
+        if ( empty( $group ) ) {
+            $group = 'default';
+        }
+
+        $full_key  = $this->build_key( $key, $group );
+        $cas_token = null;
+
+        if ( $this->is_non_persistent( $group ) ) {
+            if ( isset( $this->cache[ $full_key ] ) ) {
+                $found = true;
+                $this->cache_hits++;
+                return $this->cache[ $full_key ];
+            }
+            $found = false;
+            $this->cache_misses++;
+            return false;
+        }
+
+        $result      = $this->memcached->get( $full_key, null, Memcached::GET_EXTENDED );
+        $result_code = $this->memcached->getResultCode();
+
+        if ( Memcached::RES_SUCCESS === $result_code && is_array( $result ) ) {
+            $found                    = true;
+            $cas_token                = $result['cas'] ?? null;
+            $data                     = $result['value'];
+            $this->cache_hits++;
+            $this->cache[ $full_key ] = $data;
+            return $data;
+        }
+
+        $found = false;
+        $this->cache_misses++;
+        return false;
+    }
+
     public function set( $key, $data, $group = 'default', $expire = 0 ) {
         if ( empty( $group ) ) {
             $group = 'default';
@@ -187,6 +223,32 @@ class Hazelcast_WP_Object_Cache {
         }
 
         $result = $this->memcached->replace( $full_key, $data, (int) $expire );
+        if ( $result ) {
+            $this->cache[ $full_key ] = $data;
+        }
+        return $result;
+    }
+
+    public function cas( $cas_token, $key, $data, $group = 'default', $expire = 0 ) {
+        if ( empty( $group ) ) {
+            $group = 'default';
+        }
+
+        $full_key = $this->build_key( $key, $group );
+
+        if ( $this->is_non_persistent( $group ) ) {
+            if ( ! isset( $this->cache[ $full_key ] ) ) {
+                return false;
+            }
+            $this->cache[ $full_key ] = $data;
+            return true;
+        }
+
+        if ( null === $cas_token ) {
+            return false;
+        }
+
+        $result = $this->memcached->cas( (float) $cas_token, $full_key, $data, (int) $expire );
         if ( $result ) {
             $this->cache[ $full_key ] = $data;
         }
@@ -296,6 +358,10 @@ function wp_cache_get( $key, $group = 'default', $force = false, &$found = null 
     return Hazelcast_WP_Object_Cache::instance()->get( $key, $group, $force, $found );
 }
 
+function wp_cache_get_with_cas( $key, $group = 'default', &$cas_token = null, $force = false, &$found = null ) {
+    return Hazelcast_WP_Object_Cache::instance()->get_with_cas( $key, $group, $cas_token, $force, $found );
+}
+
 function wp_cache_set( $key, $data, $group = 'default', $expire = 0 ) {
     return Hazelcast_WP_Object_Cache::instance()->set( $key, $data, $group, $expire );
 }
@@ -306,6 +372,10 @@ function wp_cache_delete( $key, $group = 'default' ) {
 
 function wp_cache_replace( $key, $data, $group = 'default', $expire = 0 ) {
     return Hazelcast_WP_Object_Cache::instance()->replace( $key, $data, $group, $expire );
+}
+
+function wp_cache_cas( $cas_token, $key, $data, $group = 'default', $expire = 0 ) {
+    return Hazelcast_WP_Object_Cache::instance()->cas( $cas_token, $key, $data, $group, $expire );
 }
 
 function wp_cache_flush() {
