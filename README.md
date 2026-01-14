@@ -55,7 +55,57 @@ define('HAZELCAST_SERVERS', 'hz-node1:5701,hz-node2:5701,hz-node3:5701');
 
 // Optional: Enable compression (default: true)
 // define('HAZELCAST_COMPRESSION', true);
+
+// Optional: Enable TLS/SSL encryption
+// define('HAZELCAST_TLS_ENABLED', true);
+// define('HAZELCAST_TLS_CERT_PATH', '/path/to/client.crt');
+// define('HAZELCAST_TLS_KEY_PATH', '/path/to/client.key');
+// define('HAZELCAST_TLS_CA_PATH', '/path/to/ca.crt');
+// define('HAZELCAST_TLS_VERIFY_PEER', true);
 ```
+
+## TLS/SSL Configuration
+
+To enable encrypted connections between WordPress and your Hazelcast cluster:
+
+### Requirements
+
+- Memcached PECL extension **3.2.0+** (with TLS support)
+- Hazelcast configured with TLS enabled on the Memcache protocol endpoint
+- Valid TLS certificates
+
+### Configuration Constants
+
+| Constant | Type | Default | Description |
+|----------|------|---------|-------------|
+| `HAZELCAST_TLS_ENABLED` | bool | `false` | Enable TLS encryption |
+| `HAZELCAST_TLS_CERT_PATH` | string | `null` | Path to client certificate file (PEM format) |
+| `HAZELCAST_TLS_KEY_PATH` | string | `null` | Path to client private key file (PEM format) |
+| `HAZELCAST_TLS_CA_PATH` | string | `null` | Path to CA certificate for server verification |
+| `HAZELCAST_TLS_VERIFY_PEER` | bool | `true` | Verify server certificate (disable only for testing) |
+
+### Example Configuration
+
+```php
+// Enable TLS
+define('HAZELCAST_TLS_ENABLED', true);
+
+// Client certificate authentication (if required by server)
+define('HAZELCAST_TLS_CERT_PATH', '/etc/ssl/hazelcast/client.crt');
+define('HAZELCAST_TLS_KEY_PATH', '/etc/ssl/hazelcast/client.key');
+
+// Custom CA for self-signed server certificates
+define('HAZELCAST_TLS_CA_PATH', '/etc/ssl/hazelcast/ca.crt');
+
+// Always verify in production
+define('HAZELCAST_TLS_VERIFY_PEER', true);
+```
+
+### Troubleshooting TLS
+
+1. **"TLS not supported"**: Upgrade your Memcached PECL extension to 3.2.0 or later
+2. **Connection failures**: Verify certificate paths exist and are readable by PHP
+3. **Certificate errors**: Ensure the CA certificate matches your Hazelcast server's certificate chain
 
 ## Running Tests
 

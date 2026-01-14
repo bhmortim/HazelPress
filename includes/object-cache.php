@@ -79,6 +79,38 @@ class Hazelcast_WP_Object_Cache {
                 $this->memcached->setOption( Memcached::OPT_TCP_NODELAY, (bool) HAZELCAST_TCP_NODELAY );
             }
 
+            if ( defined( 'HAZELCAST_TLS_ENABLED' ) && HAZELCAST_TLS_ENABLED ) {
+                if ( defined( 'Memcached::OPT_USE_TLS' ) ) {
+                    $this->memcached->setOption( Memcached::OPT_USE_TLS, true );
+
+                    $tls_context = array();
+
+                    if ( defined( 'HAZELCAST_TLS_CERT_PATH' ) && file_exists( HAZELCAST_TLS_CERT_PATH ) ) {
+                        $tls_context['local_cert'] = HAZELCAST_TLS_CERT_PATH;
+                    }
+
+                    if ( defined( 'HAZELCAST_TLS_KEY_PATH' ) && file_exists( HAZELCAST_TLS_KEY_PATH ) ) {
+                        $tls_context['local_pk'] = HAZELCAST_TLS_KEY_PATH;
+                    }
+
+                    if ( defined( 'HAZELCAST_TLS_CA_PATH' ) && file_exists( HAZELCAST_TLS_CA_PATH ) ) {
+                        $tls_context['cafile'] = HAZELCAST_TLS_CA_PATH;
+                    }
+
+                    if ( defined( 'HAZELCAST_TLS_VERIFY_PEER' ) ) {
+                        $tls_context['verify_peer'] = (bool) HAZELCAST_TLS_VERIFY_PEER;
+                    }
+
+                    if ( ! empty( $tls_context ) && defined( 'Memcached::OPT_TLS_CONTEXT' ) ) {
+                        $this->memcached->setOption( Memcached::OPT_TLS_CONTEXT, $tls_context );
+                    }
+
+                    $this->log( 'info', 'TLS enabled for Hazelcast connection' );
+                } else {
+                    $this->log( 'warning', 'TLS requested but Memcached extension does not support OPT_USE_TLS' );
+                }
+            }
+
             $server_list = array();
             foreach ( array_map( 'trim', $servers ) as $server ) {
                 $parts         = explode( ':', $server );
@@ -146,6 +178,7 @@ class Hazelcast_WP_Object_Cache {
 
     public function is_fallback_mode() {
         return $this->fallback_mode;
+    }
 
     private function log( $level, $message ) {
         if ( ! $this->debug ) {
@@ -754,18 +787,27 @@ class Hazelcast_WP_Object_Cache {
             }
         }
 
+        $tls_enabled   = defined( 'HAZELCAST_TLS_ENABLED' ) && HAZELCAST_TLS_ENABLED;
+        $tls_supported = defined( 'Memcached::OPT_USE_TLS' );
+
         return array(
-            'servers'        => defined( 'HAZELCAST_SERVERS' ) ? HAZELCAST_SERVERS : '127.0.0.1:5701',
-            'compression'    => defined( 'HAZELCAST_COMPRESSION' ) ? (bool) HAZELCAST_COMPRESSION : true,
-            'key_prefix'     => defined( 'HAZELCAST_KEY_PREFIX' ) ? HAZELCAST_KEY_PREFIX : 'wp_' . md5( site_url() ) . ':',
-            'timeout'        => defined( 'HAZELCAST_TIMEOUT' ) ? (int) HAZELCAST_TIMEOUT : null,
-            'retry_timeout'  => defined( 'HAZELCAST_RETRY_TIMEOUT' ) ? (int) HAZELCAST_RETRY_TIMEOUT : null,
-            'serializer'     => $serializer,
-            'tcp_nodelay'    => defined( 'HAZELCAST_TCP_NODELAY' ) ? (bool) HAZELCAST_TCP_NODELAY : null,
+            'servers'                 => defined( 'HAZELCAST_SERVERS' ) ? HAZELCAST_SERVERS : '127.0.0.1:5701',
+            'compression'             => defined( 'HAZELCAST_COMPRESSION' ) ? (bool) HAZELCAST_COMPRESSION : true,
+            'key_prefix'              => defined( 'HAZELCAST_KEY_PREFIX' ) ? HAZELCAST_KEY_PREFIX : 'wp_' . md5( site_url() ) . ':',
+            'timeout'                 => defined( 'HAZELCAST_TIMEOUT' ) ? (int) HAZELCAST_TIMEOUT : null,
+            'retry_timeout'           => defined( 'HAZELCAST_RETRY_TIMEOUT' ) ? (int) HAZELCAST_RETRY_TIMEOUT : null,
+            'serializer'              => $serializer,
+            'tcp_nodelay'             => defined( 'HAZELCAST_TCP_NODELAY' ) ? (bool) HAZELCAST_TCP_NODELAY : null,
             'authentication'          => defined( 'HAZELCAST_USERNAME' ) && defined( 'HAZELCAST_PASSWORD' ),
             'debug'                   => defined( 'HAZELCAST_DEBUG' ) ? (bool) HAZELCAST_DEBUG : false,
             'fallback_retry_interval' => $this->fallback_retry_interval,
             'fallback_mode'           => $this->fallback_mode,
+            'tls_enabled'             => $tls_enabled && $tls_supported,
+            'tls_supported'           => $tls_supported,
+            'tls_cert_path'           => defined( 'HAZELCAST_TLS_CERT_PATH' ) ? HAZELCAST_TLS_CERT_PATH : null,
+            'tls_key_path'            => defined( 'HAZELCAST_TLS_KEY_PATH' ) ? HAZELCAST_TLS_KEY_PATH : null,
+            'tls_ca_path'             => defined( 'HAZELCAST_TLS_CA_PATH' ) ? HAZELCAST_TLS_CA_PATH : null,
+            'tls_verify_peer'         => defined( 'HAZELCAST_TLS_VERIFY_PEER' ) ? (bool) HAZELCAST_TLS_VERIFY_PEER : true,
         );
     }
 

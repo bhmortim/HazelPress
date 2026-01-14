@@ -364,6 +364,65 @@ class Hazelcast_WP_Admin {
                         __( 'SASL authentication credentials. Set via HAZELCAST_USERNAME and HAZELCAST_PASSWORD constants.', 'hazelcast-object-cache' )
                     );
 
+                    $tls_supported = isset( $config['tls_supported'] ) && $config['tls_supported'];
+                    $tls_enabled   = isset( $config['tls_enabled'] ) && $config['tls_enabled'];
+                    if ( ! $tls_supported ) {
+                        $tls_value = __( 'Not supported (Memcached extension too old)', 'hazelcast-object-cache' );
+                        $tls_valid = false;
+                    } elseif ( $tls_enabled ) {
+                        $tls_value = __( 'Enabled', 'hazelcast-object-cache' );
+                        $tls_valid = true;
+                    } else {
+                        $tls_value = __( 'Disabled', 'hazelcast-object-cache' );
+                        $tls_valid = true;
+                    }
+                    $this->render_config_row(
+                        __( 'TLS/SSL', 'hazelcast-object-cache' ),
+                        $tls_value,
+                        $tls_valid,
+                        __( 'Encrypts connections to Hazelcast. Set via HAZELCAST_TLS_ENABLED constant.', 'hazelcast-object-cache' )
+                    );
+
+                    if ( $tls_enabled ) {
+                        $cert_path  = $config['tls_cert_path'] ?? '';
+                        $cert_valid = ! empty( $cert_path ) && file_exists( $cert_path );
+                        $cert_value = $cert_valid ? basename( $cert_path ) : __( 'Not configured', 'hazelcast-object-cache' );
+                        $this->render_config_row(
+                            __( 'TLS Certificate', 'hazelcast-object-cache' ),
+                            $cert_value,
+                            true,
+                            __( 'Client certificate file path. Set via HAZELCAST_TLS_CERT_PATH constant.', 'hazelcast-object-cache' )
+                        );
+
+                        $key_path  = $config['tls_key_path'] ?? '';
+                        $key_valid = ! empty( $key_path ) && file_exists( $key_path );
+                        $key_value = $key_valid ? basename( $key_path ) : __( 'Not configured', 'hazelcast-object-cache' );
+                        $this->render_config_row(
+                            __( 'TLS Private Key', 'hazelcast-object-cache' ),
+                            $key_value,
+                            true,
+                            __( 'Client private key file path. Set via HAZELCAST_TLS_KEY_PATH constant.', 'hazelcast-object-cache' )
+                        );
+
+                        $ca_path  = $config['tls_ca_path'] ?? '';
+                        $ca_value = ! empty( $ca_path ) ? basename( $ca_path ) : __( 'System default', 'hazelcast-object-cache' );
+                        $this->render_config_row(
+                            __( 'TLS CA Certificate', 'hazelcast-object-cache' ),
+                            $ca_value,
+                            true,
+                            __( 'CA certificate file for server verification. Set via HAZELCAST_TLS_CA_PATH constant.', 'hazelcast-object-cache' )
+                        );
+
+                        $verify_peer = $config['tls_verify_peer'] ?? true;
+                        $verify_value = $verify_peer ? __( 'Enabled', 'hazelcast-object-cache' ) : __( 'Disabled', 'hazelcast-object-cache' );
+                        $this->render_config_row(
+                            __( 'TLS Peer Verification', 'hazelcast-object-cache' ),
+                            $verify_value,
+                            $verify_peer,
+                            __( 'Validates server certificate. Set via HAZELCAST_TLS_VERIFY_PEER constant.', 'hazelcast-object-cache' )
+                        );
+                    }
+
                     $debug_value = isset( $config['debug'] ) && $config['debug'] ? __( 'Enabled', 'hazelcast-object-cache' ) : __( 'Disabled', 'hazelcast-object-cache' );
                     $this->render_config_row(
                         __( 'Debug Logging', 'hazelcast-object-cache' ),
