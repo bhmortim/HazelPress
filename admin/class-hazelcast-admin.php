@@ -123,6 +123,97 @@ class Hazelcast_WP_Admin {
                 </table>
             </div>
 
+            <?php
+            $dropin_status = $this->get_dropin_status();
+            $config        = function_exists( 'wp_cache_get_config' ) ? wp_cache_get_config() : array();
+            ?>
+            <div class="card">
+                <h2><?php esc_html_e( 'Configuration', 'hazelcast-object-cache' ); ?></h2>
+                <table class="form-table">
+                    <?php
+                    $this->render_config_row(
+                        __( 'Drop-in Status', 'hazelcast-object-cache' ),
+                        $dropin_status['message'],
+                        $dropin_status['valid'],
+                        __( 'The object-cache.php drop-in must be installed in wp-content for caching to work.', 'hazelcast-object-cache' )
+                    );
+
+                    $servers_value = $config['servers'] ?? '127.0.0.1:5701';
+                    $servers_valid = ! empty( $servers_value );
+                    $this->render_config_row(
+                        __( 'Servers', 'hazelcast-object-cache' ),
+                        $servers_value,
+                        $servers_valid,
+                        __( 'Hazelcast cluster endpoints. Set via HAZELCAST_SERVERS constant.', 'hazelcast-object-cache' )
+                    );
+
+                    $compression_value = isset( $config['compression'] ) && $config['compression'] ? __( 'Enabled', 'hazelcast-object-cache' ) : __( 'Disabled', 'hazelcast-object-cache' );
+                    $this->render_config_row(
+                        __( 'Compression', 'hazelcast-object-cache' ),
+                        $compression_value,
+                        true,
+                        __( 'Compresses cached data to reduce memory usage. Set via HAZELCAST_COMPRESSION constant.', 'hazelcast-object-cache' )
+                    );
+
+                    $timeout_value = isset( $config['timeout'] ) && null !== $config['timeout']
+                        ? sprintf( __( '%d seconds', 'hazelcast-object-cache' ), $config['timeout'] )
+                        : __( 'Default', 'hazelcast-object-cache' );
+                    $this->render_config_row(
+                        __( 'Connection Timeout', 'hazelcast-object-cache' ),
+                        $timeout_value,
+                        true,
+                        __( 'Maximum time to wait for server connection. Set via HAZELCAST_TIMEOUT constant.', 'hazelcast-object-cache' )
+                    );
+
+                    $retry_value = isset( $config['retry_timeout'] ) && null !== $config['retry_timeout']
+                        ? sprintf( __( '%d seconds', 'hazelcast-object-cache' ), $config['retry_timeout'] )
+                        : __( 'Default', 'hazelcast-object-cache' );
+                    $this->render_config_row(
+                        __( 'Retry Timeout', 'hazelcast-object-cache' ),
+                        $retry_value,
+                        true,
+                        __( 'Time before retrying a failed server. Set via HAZELCAST_RETRY_TIMEOUT constant.', 'hazelcast-object-cache' )
+                    );
+
+                    $serializer_value = $config['serializer'] ?? 'php';
+                    $serializer_valid = in_array( $serializer_value, array( 'php', 'igbinary' ), true );
+                    $this->render_config_row(
+                        __( 'Serializer', 'hazelcast-object-cache' ),
+                        strtoupper( $serializer_value ),
+                        $serializer_valid,
+                        __( 'Method used to serialize cached data. igbinary offers better performance if available. Set via HAZELCAST_SERIALIZER constant.', 'hazelcast-object-cache' )
+                    );
+
+                    $prefix_value = $config['key_prefix'] ?? '';
+                    $prefix_valid = ! empty( $prefix_value );
+                    $this->render_config_row(
+                        __( 'Key Prefix', 'hazelcast-object-cache' ),
+                        $prefix_value,
+                        $prefix_valid,
+                        __( 'Prefix added to all cache keys to prevent collisions. Set via HAZELCAST_KEY_PREFIX constant.', 'hazelcast-object-cache' )
+                    );
+
+                    $tcp_nodelay_value = isset( $config['tcp_nodelay'] ) && null !== $config['tcp_nodelay']
+                        ? ( $config['tcp_nodelay'] ? __( 'Enabled', 'hazelcast-object-cache' ) : __( 'Disabled', 'hazelcast-object-cache' ) )
+                        : __( 'Default', 'hazelcast-object-cache' );
+                    $this->render_config_row(
+                        __( 'TCP No Delay', 'hazelcast-object-cache' ),
+                        $tcp_nodelay_value,
+                        true,
+                        __( 'Disables Nagle algorithm for lower latency. Set via HAZELCAST_TCP_NODELAY constant.', 'hazelcast-object-cache' )
+                    );
+
+                    $auth_value = isset( $config['authentication'] ) && $config['authentication'] ? __( 'Configured', 'hazelcast-object-cache' ) : __( 'Not configured', 'hazelcast-object-cache' );
+                    $this->render_config_row(
+                        __( 'Authentication', 'hazelcast-object-cache' ),
+                        $auth_value,
+                        true,
+                        __( 'SASL authentication credentials. Set via HAZELCAST_USERNAME and HAZELCAST_PASSWORD constants.', 'hazelcast-object-cache' )
+                    );
+                    ?>
+                </table>
+            </div>
+
             <div class="card">
                 <h2><?php esc_html_e( 'Cache Statistics', 'hazelcast-object-cache' ); ?></h2>
                 <table class="form-table">
@@ -213,5 +304,56 @@ class Hazelcast_WP_Admin {
         $pow   = min( $pow, count( $units ) - 1 );
         $bytes /= pow( 1024, $pow );
         return round( $bytes, 2 ) . ' ' . $units[ $pow ];
+    }
+
+    private function get_dropin_status() {
+        $dropin_path = WP_CONTENT_DIR . '/object-cache.php';
+
+        if ( ! file_exists( $dropin_path ) ) {
+            return array(
+                'installed' => false,
+                'valid'     => false,
+                'message'   => __( 'Drop-in not installed', 'hazelcast-object-cache' ),
+            );
+        }
+
+        $content = file_get_contents( $dropin_path );
+        if ( false === $content ) {
+            return array(
+                'installed' => true,
+                'valid'     => false,
+                'message'   => __( 'Unable to read drop-in file', 'hazelcast-object-cache' ),
+            );
+        }
+
+        if ( strpos( $content, 'Hazelcast_WP_Object_Cache' ) !== false ) {
+            return array(
+                'installed' => true,
+                'valid'     => true,
+                'message'   => __( 'Hazelcast drop-in active', 'hazelcast-object-cache' ),
+            );
+        }
+
+        return array(
+            'installed' => true,
+            'valid'     => false,
+            'message'   => __( 'Different object cache drop-in installed', 'hazelcast-object-cache' ),
+        );
+    }
+
+    private function render_config_row( $label, $value, $valid, $description ) {
+        $icon = $valid
+            ? '<span style="color: green;">&#10003;</span>'
+            : '<span style="color: red;">&#10007;</span>';
+        ?>
+        <tr>
+            <th scope="row"><?php echo esc_html( $label ); ?></th>
+            <td>
+                <?php echo $icon; ?>
+                <strong><?php echo esc_html( $value ); ?></strong>
+                <p class="description"><?php echo esc_html( $description ); ?></p>
+            </td>
+        </tr>
+        <?php
     }
 }
