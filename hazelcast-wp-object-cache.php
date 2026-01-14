@@ -42,25 +42,93 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
     WP_CLI::add_command( 'hazelcast', 'Hazelcast_WP_CLI' );
 }
 
-// Enable/drop the object-cache.php drop-in.
+/**
+ * Enable the object-cache.php drop-in.
+ *
+ * Creates a symlink (preferred) or copy of the drop-in file.
+ * Stores failure reason in transient if installation fails.
+ */
 function hazelcast_object_cache_enable() {
     $dropin = WP_CONTENT_DIR . '/object-cache.php';
     $source = HAZELCAST_OBJECT_CACHE_DIR . 'includes/object-cache.php';
 
-    if ( file_exists( $source ) && ! file_exists( $dropin ) ) {
-        // Use symlink if possible, fallback to copy.
-        if ( function_exists( 'symlink' ) ) {
-            symlink( $source, $dropin );
-        } else {
-            copy( $source, $dropin );
+    delete_transient( 'hazelcast_dropin_install_failed' );
+
+    if ( ! file_exists( $source ) ) {
+        set_transient( 'hazelcast_dropin_install_failed', 'source_missing', HOUR_IN_SECONDS );
+        if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+            error_log( 'Hazelcast Object Cache: Source file not found at ' . $source );
         }
+        return;
+    }
+
+    if ( file_exists( $dropin ) || is_link( $dropin ) ) {
+        if ( is_link( $dropin ) && readlink( $dropin ) === $source ) {
+            return;
+        }
+        if ( file_exists( $dropin ) && file_get_contents( $dropin ) === file_get_contents( $source ) ) {
+            return;
+        }
+        set_transient( 'hazelcast_dropin_install_failed', 'existing_dropin', HOUR_IN_SECONDS );
+        if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+            error_log( 'Hazelcast Object Cache: A different object-cache.php drop-in already exists.' );
+        }
+        return;
+    }
+
+    if ( function_exists( 'symlink' ) ) {
+        if ( @symlink( $source, $dropin ) ) {
+            return;
+        }
+        if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+            error_log( 'Hazelcast Object Cache: symlink() failed, falling back to copy().' );
+        }
+    }
+
+    if ( @copy( $source, $dropin ) ) {
+        return;
+    }
+
+    set_transient( 'hazelcast_dropin_install_failed', 'write_failed', HOUR_IN_SECONDS );
+    if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+        error_log( 'Hazelcast Object Cache: Failed to install drop-in. Check permissions on ' . WP_CONTENT_DIR );
     }
 }
 
+/**
+ * Disable the object-cache.php drop-in.
+ *
+ * Only removes the drop-in if it belongs to this plugin (symlink or matching content).
+ */
 function hazelcast_object_cache_disable() {
     $dropin = WP_CONTENT_DIR . '/object-cache.php';
-    if ( file_exists( $dropin ) && false !== strpos( realpath( $dropin ), realpath( HAZELCAST_OBJECT_CACHE_DIR ) ) ) {
-        unlink( $dropin );
+    $source = HAZELCAST_OBJECT_CACHE_DIR . 'includes/object-cache.php';
+
+    delete_transient( 'hazelcast_dropin_install_failed' );
+
+    if ( ! file_exists( $dropin ) && ! is_link( $dropin ) ) {
+        return;
+    }
+
+    $is_ours = false;
+
+    if ( is_link( $dropin ) ) {
+        $link_target = readlink( $dropin );
+        if ( $link_target === $source || realpath( $link_target ) === realpath( $source ) ) {
+            $is_ours = true;
+        }
+    } elseif ( file_exists( $dropin ) && file_exists( $source ) ) {
+        if ( file_get_contents( $dropin ) === file_get_contents( $source ) ) {
+            $is_ours = true;
+        }
+    }
+
+    if ( $is_ours ) {
+        if ( ! @unlink( $dropin ) ) {
+            if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                error_log( 'Hazelcast Object Cache: Failed to remove drop-in. Check file permissions.' );
+            }
+        }
     }
 }
 
