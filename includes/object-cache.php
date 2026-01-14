@@ -181,7 +181,7 @@ class Hazelcast_WP_Object_Cache {
         $this->memcached = new Memcached( 'hazelcast_persistent' );
 
         global $blog_id;
-        $this->blog_prefix = is_multisite() ? (int) $blog_id : 1;
+        $this->blog_prefix = ( function_exists( 'is_multisite' ) && is_multisite() ) ? (int) $blog_id : 1;
 
         $servers  = defined( 'HAZELCAST_SERVERS' ) ? explode( ',', HAZELCAST_SERVERS ) : array( '127.0.0.1:5701' );
         $username = defined( 'HAZELCAST_USERNAME' ) ? HAZELCAST_USERNAME : null;
@@ -190,7 +190,13 @@ class Hazelcast_WP_Object_Cache {
         if ( ! count( $this->memcached->getServerList() ) ) {
             $this->memcached->setOption( Memcached::OPT_COMPRESSION, defined( 'HAZELCAST_COMPRESSION' ) ? (bool) HAZELCAST_COMPRESSION : true );
 
-            $key_prefix = defined( 'HAZELCAST_KEY_PREFIX' ) ? HAZELCAST_KEY_PREFIX : 'wp_' . md5( site_url() ) . ':';
+            if ( defined( 'HAZELCAST_KEY_PREFIX' ) ) {
+                $key_prefix = HAZELCAST_KEY_PREFIX;
+            } elseif ( function_exists( 'site_url' ) ) {
+                $key_prefix = 'wp_' . md5( site_url() ) . ':';
+            } else {
+                $key_prefix = 'wp_' . md5( DB_NAME . ABSPATH ) . ':';
+            }
             $this->memcached->setOption( Memcached::OPT_PREFIX_KEY, $key_prefix );
 
             if ( defined( 'HAZELCAST_TIMEOUT' ) ) {
@@ -1263,7 +1269,7 @@ class Hazelcast_WP_Object_Cache {
         return array(
             'servers'                 => defined( 'HAZELCAST_SERVERS' ) ? HAZELCAST_SERVERS : '127.0.0.1:5701',
             'compression'             => defined( 'HAZELCAST_COMPRESSION' ) ? (bool) HAZELCAST_COMPRESSION : true,
-            'key_prefix'              => defined( 'HAZELCAST_KEY_PREFIX' ) ? HAZELCAST_KEY_PREFIX : 'wp_' . md5( site_url() ) . ':',
+            'key_prefix'              => defined( 'HAZELCAST_KEY_PREFIX' ) ? HAZELCAST_KEY_PREFIX : ( function_exists( 'site_url' ) ? 'wp_' . md5( site_url() ) . ':' : 'wp_' . md5( DB_NAME . ABSPATH ) . ':' ),
             'timeout'                 => defined( 'HAZELCAST_TIMEOUT' ) ? (int) HAZELCAST_TIMEOUT : null,
             'retry_timeout'           => defined( 'HAZELCAST_RETRY_TIMEOUT' ) ? (int) HAZELCAST_RETRY_TIMEOUT : null,
             'serializer'              => $serializer,
