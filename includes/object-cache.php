@@ -338,6 +338,25 @@ class Hazelcast_WP_Object_Cache {
         );
     }
 
+    public function get_servers() {
+        if ( ! $this->memcached instanceof Memcached ) {
+            return array();
+        }
+        return $this->memcached->getServerList();
+    }
+
+    public function is_connected() {
+        if ( ! $this->memcached instanceof Memcached ) {
+            return false;
+        }
+        $servers = $this->memcached->getServerList();
+        if ( empty( $servers ) ) {
+            return false;
+        }
+        $stats = @$this->memcached->getStats();
+        return ! empty( $stats );
+    }
+
     public function close() {
         if ( $this->memcached instanceof Memcached ) {
             $this->memcached->quit();
@@ -408,4 +427,12 @@ function wp_cache_close() {
 
 function wp_cache_get_stats() {
     return Hazelcast_WP_Object_Cache::instance()->get_stats();
+}
+
+function wp_cache_get_servers() {
+    return Hazelcast_WP_Object_Cache::instance()->get_servers();
+}
+
+function wp_cache_is_connected() {
+    return Hazelcast_WP_Object_Cache::instance()->is_connected();
 }
