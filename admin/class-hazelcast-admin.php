@@ -208,24 +208,26 @@ class Hazelcast_WP_Admin {
             return;
         }
 
-        $stats     = array(
+        $stats      = array(
             'hits'         => 0,
             'misses'       => 0,
             'hit_ratio'    => 0,
             'uptime'       => 0,
             'server_stats' => array(),
         );
-        $servers   = array();
-        $connected = false;
+        $servers    = array();
+        $connected  = false;
+        $last_error = '';
 
         if ( function_exists( 'wp_cache_get_stats' ) ) {
             $stats = wp_cache_get_stats();
         }
 
         if ( class_exists( 'Hazelcast_WP_Object_Cache' ) ) {
-            $cache     = Hazelcast_WP_Object_Cache::instance();
-            $servers   = $cache->get_servers();
-            $connected = $cache->is_connected();
+            $cache      = Hazelcast_WP_Object_Cache::instance();
+            $servers    = $cache->get_servers();
+            $connected  = $cache->is_connected();
+            $last_error = $cache->get_last_error();
         }
 
         $ratio  = $stats['hit_ratio'];
@@ -249,6 +251,14 @@ class Hazelcast_WP_Admin {
                             <?php endif; ?>
                         </td>
                     </tr>
+                    <?php if ( ! empty( $last_error ) ) : ?>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Last Error', 'hazelcast-object-cache' ); ?></th>
+                        <td>
+                            <span style="color: red;"><code><?php echo esc_html( $last_error ); ?></code></span>
+                        </td>
+                    </tr>
+                    <?php endif; ?>
                     <tr>
                         <th scope="row"><?php esc_html_e( 'Servers', 'hazelcast-object-cache' ); ?></th>
                         <td>
@@ -352,6 +362,14 @@ class Hazelcast_WP_Admin {
                         $auth_value,
                         true,
                         __( 'SASL authentication credentials. Set via HAZELCAST_USERNAME and HAZELCAST_PASSWORD constants.', 'hazelcast-object-cache' )
+                    );
+
+                    $debug_value = isset( $config['debug'] ) && $config['debug'] ? __( 'Enabled', 'hazelcast-object-cache' ) : __( 'Disabled', 'hazelcast-object-cache' );
+                    $this->render_config_row(
+                        __( 'Debug Logging', 'hazelcast-object-cache' ),
+                        $debug_value,
+                        true,
+                        __( 'Logs cache operations to error_log() for debugging. Set via HAZELCAST_DEBUG constant.', 'hazelcast-object-cache' )
                     );
                     ?>
                 </table>

@@ -27,6 +27,8 @@ class Hazelcast_WP_Object_Cache {
     private $cache_hits = 0;
     private $cache_misses = 0;
     private $blog_prefix;
+    private $debug = false;
+    private $last_error = '';
 
     public static function instance() {
         if ( ! isset( self::$instance ) ) {
@@ -37,6 +39,7 @@ class Hazelcast_WP_Object_Cache {
     }
 
     private function init() {
+        $this->debug     = defined( 'HAZELCAST_DEBUG' ) && HAZELCAST_DEBUG;
         $this->memcached = new Memcached( 'hazelcast_persistent' );
 
         global $blog_id;
@@ -84,6 +87,31 @@ class Hazelcast_WP_Object_Cache {
 
             if ( $username && $password ) {
                 $this->memcached->setSaslAuthData( $username, $password );
+            }
+
+            $this->log( 'info', 'Initialized connection to servers: ' . implode( ', ', $servers ) );
+        }
+
+        if ( ! $this->is_connected() ) {
+            $this->set_last_error();
+            $this->log( 'error', 'Failed to connect to Hazelcast cluster' );
+        }
+    }
+
+    private function log( $level, $message ) {
+        if ( ! $this->debug ) {
+            return;
+        }
+        $prefix = '[Hazelcast Cache]';
+        error_log( sprintf( '%s [%s] %s', $prefix, strtoupper( $level ), $message ) );
+    }
+
+    private function set_last_error() {
+        if ( $this->memcached instanceof Memcached ) {
+            $code    = $this->memcached->getResultCode();
+            $message = $this->memcached->getResultMessage();
+            if ( Memcached::RES_SUCCESS !== $code ) {
+                $this->last_error = sprintf( '[%d] %s', $code, $message );
             }
         }
     }
@@ -146,6 +174,10 @@ class Hazelcast_WP_Object_Cache {
         $result = $this->memcached->add( $full_key, $data, (int) $expire );
         if ( $result ) {
             $this->cache[ $full_key ] = $data;
+            $this->log( 'debug', sprintf( 'ADD %s (group: %s)', $key, $group ) );
+        } else {
+            $this->set_last_error();
+            $this->log( 'debug', sprintf( 'ADD FAILED %s (group: %s) - %s', $key, $group, $this->last_error ) );
         }
         return $result;
     }
@@ -181,11 +213,14 @@ class Hazelcast_WP_Object_Cache {
             $found                    = true;
             $this->cache_hits++;
             $this->cache[ $full_key ] = $data;
+            $this->log( 'debug', sprintf( 'GET HIT %s (group: %s, source: memcached)', $key, $group ) );
             return $data;
         }
 
         $found = false;
         $this->cache_misses++;
+        $this->set_last_error();
+        $this->log( 'debug', sprintf( 'GET MISS %s (group: %s)', $key, $group ) );
         return false;
     }
 
@@ -240,6 +275,10 @@ class Hazelcast_WP_Object_Cache {
         $result = $this->memcached->set( $full_key, $data, (int) $expire );
         if ( $result ) {
             $this->cache[ $full_key ] = $data;
+            $this->log( 'debug', sprintf( 'SET %s (group: %s, expire: %d)', $key, $group, $expire ) );
+        } else {
+            $this->set_last_error();
+            $this->log( 'error', sprintf( 'SET FAILED %s (group: %s) - %s', $key, $group, $this->last_error ) );
         }
         return $result;
     }
@@ -256,7 +295,14 @@ class Hazelcast_WP_Object_Cache {
             return true;
         }
 
-        return $this->memcached->delete( $full_key );
+        $result = $this->memcached->delete( $full_key );
+        if ( $result ) {
+            $this->log( 'debug', sprintf( 'DELETE %s (group: %s)', $key, $group ) );
+        } else {
+            $this->set_last_error();
+            $this->log( 'debug', sprintf( 'DELETE FAILED %s (group: %s) - %s', $key, $group, $this->last_error ) );
+        }
+        return $result;
     }
 
     public function replace( $key, $data, $group = 'default', $expire = 0 ) {
@@ -277,6 +323,10 @@ class Hazelcast_WP_Object_Cache {
         $result = $this->memcached->replace( $full_key, $data, (int) $expire );
         if ( $result ) {
             $this->cache[ $full_key ] = $data;
+            $this->log( 'debug', sprintf( 'REPLACE %s (group: %s)', $key, $group ) );
+        } else {
+            $this->set_last_error();
+            $this->log( 'debug', sprintf( 'REPLACE FAILED %s (group: %s) - %s', $key, $group, $this->last_error ) );
         }
         return $result;
     }
@@ -303,6 +353,10 @@ class Hazelcast_WP_Object_Cache {
         $result = $this->memcached->cas( (float) $cas_token, $full_key, $data, (int) $expire );
         if ( $result ) {
             $this->cache[ $full_key ] = $data;
+            $this->log( 'debug', sprintf( 'CAS %s (group: %s)', $key, $group ) );
+        } else {
+            $this->set_last_error();
+            $this->log( 'debug', sprintf( 'CAS FAILED %s (group: %s) - %s', $key, $group, $this->last_error ) );
         }
         return $result;
     }
@@ -310,7 +364,14 @@ class Hazelcast_WP_Object_Cache {
     public function flush() {
         $this->cache          = array();
         $this->group_versions = array();
-        return $this->memcached->flush();
+        $result               = $this->memcached->flush();
+        if ( $result ) {
+            $this->log( 'info', 'FLUSH - Cache flushed successfully' );
+        } else {
+            $this->set_last_error();
+            $this->log( 'error', 'FLUSH FAILED - ' . $this->last_error );
+        }
+        return $result;
     }
 
     public function flush_group( $group ) {
@@ -490,7 +551,12 @@ class Hazelcast_WP_Object_Cache {
             'serializer'     => $serializer,
             'tcp_nodelay'    => defined( 'HAZELCAST_TCP_NODELAY' ) ? (bool) HAZELCAST_TCP_NODELAY : null,
             'authentication' => defined( 'HAZELCAST_USERNAME' ) && defined( 'HAZELCAST_PASSWORD' ),
+            'debug'          => defined( 'HAZELCAST_DEBUG' ) ? (bool) HAZELCAST_DEBUG : false,
         );
+    }
+
+    public function get_last_error() {
+        return $this->last_error;
     }
 }
 
@@ -572,4 +638,8 @@ function wp_cache_get_config() {
 
 function wp_cache_flush_group( $group ) {
     return Hazelcast_WP_Object_Cache::instance()->flush_group( $group );
+}
+
+function wp_cache_get_last_error() {
+    return Hazelcast_WP_Object_Cache::instance()->get_last_error();
 }
