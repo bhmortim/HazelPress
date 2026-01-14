@@ -47,7 +47,30 @@ class Hazelcast_WP_Object_Cache {
 
         if ( ! count( $this->memcached->getServerList() ) ) {
             $this->memcached->setOption( Memcached::OPT_COMPRESSION, defined( 'HAZELCAST_COMPRESSION' ) ? (bool) HAZELCAST_COMPRESSION : true );
-            $this->memcached->setOption( Memcached::OPT_PREFIX_KEY, 'wp_' . md5( site_url() ) . ':' );
+
+            $key_prefix = defined( 'HAZELCAST_KEY_PREFIX' ) ? HAZELCAST_KEY_PREFIX : 'wp_' . md5( site_url() ) . ':';
+            $this->memcached->setOption( Memcached::OPT_PREFIX_KEY, $key_prefix );
+
+            if ( defined( 'HAZELCAST_TIMEOUT' ) ) {
+                $this->memcached->setOption( Memcached::OPT_CONNECT_TIMEOUT, (int) HAZELCAST_TIMEOUT * 1000 );
+            }
+
+            if ( defined( 'HAZELCAST_RETRY_TIMEOUT' ) ) {
+                $this->memcached->setOption( Memcached::OPT_RETRY_TIMEOUT, (int) HAZELCAST_RETRY_TIMEOUT );
+            }
+
+            if ( defined( 'HAZELCAST_SERIALIZER' ) ) {
+                $serializer = strtolower( HAZELCAST_SERIALIZER );
+                if ( 'igbinary' === $serializer && defined( 'Memcached::SERIALIZER_IGBINARY' ) ) {
+                    $this->memcached->setOption( Memcached::OPT_SERIALIZER, Memcached::SERIALIZER_IGBINARY );
+                } else {
+                    $this->memcached->setOption( Memcached::OPT_SERIALIZER, Memcached::SERIALIZER_PHP );
+                }
+            }
+
+            if ( defined( 'HAZELCAST_TCP_NODELAY' ) ) {
+                $this->memcached->setOption( Memcached::OPT_TCP_NODELAY, (bool) HAZELCAST_TCP_NODELAY );
+            }
 
             $server_list = array();
             foreach ( array_map( 'trim', $servers ) as $server ) {
@@ -387,6 +410,29 @@ class Hazelcast_WP_Object_Cache {
         }
         return true;
     }
+
+    public function get_config() {
+        $serializer = 'php';
+        if ( defined( 'HAZELCAST_SERIALIZER' ) ) {
+            $serializer = strtolower( HAZELCAST_SERIALIZER );
+            if ( 'igbinary' === $serializer && defined( 'Memcached::SERIALIZER_IGBINARY' ) ) {
+                $serializer = 'igbinary';
+            } else {
+                $serializer = 'php';
+            }
+        }
+
+        return array(
+            'servers'        => defined( 'HAZELCAST_SERVERS' ) ? HAZELCAST_SERVERS : '127.0.0.1:5701',
+            'compression'    => defined( 'HAZELCAST_COMPRESSION' ) ? (bool) HAZELCAST_COMPRESSION : true,
+            'key_prefix'     => defined( 'HAZELCAST_KEY_PREFIX' ) ? HAZELCAST_KEY_PREFIX : 'wp_' . md5( site_url() ) . ':',
+            'timeout'        => defined( 'HAZELCAST_TIMEOUT' ) ? (int) HAZELCAST_TIMEOUT : null,
+            'retry_timeout'  => defined( 'HAZELCAST_RETRY_TIMEOUT' ) ? (int) HAZELCAST_RETRY_TIMEOUT : null,
+            'serializer'     => $serializer,
+            'tcp_nodelay'    => defined( 'HAZELCAST_TCP_NODELAY' ) ? (bool) HAZELCAST_TCP_NODELAY : null,
+            'authentication' => defined( 'HAZELCAST_USERNAME' ) && defined( 'HAZELCAST_PASSWORD' ),
+        );
+    }
 }
 
 function wp_cache_init() {
@@ -459,4 +505,8 @@ function wp_cache_get_servers() {
 
 function wp_cache_is_connected() {
     return Hazelcast_WP_Object_Cache::instance()->is_connected();
+}
+
+function wp_cache_get_config() {
+    return Hazelcast_WP_Object_Cache::instance()->get_config();
 }
