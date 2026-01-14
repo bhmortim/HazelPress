@@ -332,9 +332,33 @@ class Hazelcast_WP_Object_Cache {
     }
 
     public function get_stats() {
+        $hits      = $this->cache_hits;
+        $misses    = $this->cache_misses;
+        $total     = $hits + $misses;
+        $hit_ratio = $total > 0 ? round( ( $hits / $total ) * 100, 2 ) : 0;
+
+        $server_stats = array();
+        $uptime       = 0;
+
+        if ( $this->memcached instanceof Memcached ) {
+            $stats = @$this->memcached->getStats();
+            if ( ! empty( $stats ) ) {
+                $server_stats = $stats;
+                foreach ( $stats as $server => $data ) {
+                    if ( isset( $data['uptime'] ) ) {
+                        $uptime = (int) $data['uptime'];
+                        break;
+                    }
+                }
+            }
+        }
+
         return array(
-            'hits'   => $this->cache_hits,
-            'misses' => $this->cache_misses,
+            'hits'         => $hits,
+            'misses'       => $misses,
+            'hit_ratio'    => $hit_ratio,
+            'uptime'       => $uptime,
+            'server_stats' => $server_stats,
         );
     }
 

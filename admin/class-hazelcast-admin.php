@@ -65,7 +65,13 @@ class Hazelcast_WP_Admin {
             return;
         }
 
-        $stats     = array( 'hits' => 0, 'misses' => 0 );
+        $stats     = array(
+            'hits'         => 0,
+            'misses'       => 0,
+            'hit_ratio'    => 0,
+            'uptime'       => 0,
+            'server_stats' => array(),
+        );
         $servers   = array();
         $connected = false;
 
@@ -79,8 +85,8 @@ class Hazelcast_WP_Admin {
             $connected = $cache->is_connected();
         }
 
-        $total = $stats['hits'] + $stats['misses'];
-        $ratio = $total > 0 ? round( ( $stats['hits'] / $total ) * 100, 2 ) : 0;
+        $ratio  = $stats['hit_ratio'];
+        $uptime = $stats['uptime'];
 
         settings_errors( 'hazelcast_messages' );
         ?>
@@ -132,8 +138,40 @@ class Hazelcast_WP_Admin {
                         <th scope="row"><?php esc_html_e( 'Hit Ratio', 'hazelcast-object-cache' ); ?></th>
                         <td><strong><?php echo esc_html( $ratio ); ?>%</strong></td>
                     </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Server Uptime', 'hazelcast-object-cache' ); ?></th>
+                        <td><strong><?php echo esc_html( $this->format_uptime( $uptime ) ); ?></strong></td>
+                    </tr>
                 </table>
             </div>
+
+            <?php if ( ! empty( $stats['server_stats'] ) ) : ?>
+            <div class="card">
+                <h2><?php esc_html_e( 'Server Statistics', 'hazelcast-object-cache' ); ?></h2>
+                <table class="widefat striped">
+                    <thead>
+                        <tr>
+                            <th><?php esc_html_e( 'Server', 'hazelcast-object-cache' ); ?></th>
+                            <th><?php esc_html_e( 'Connections', 'hazelcast-object-cache' ); ?></th>
+                            <th><?php esc_html_e( 'Items', 'hazelcast-object-cache' ); ?></th>
+                            <th><?php esc_html_e( 'Memory Used', 'hazelcast-object-cache' ); ?></th>
+                            <th><?php esc_html_e( 'Evictions', 'hazelcast-object-cache' ); ?></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ( $stats['server_stats'] as $server => $data ) : ?>
+                        <tr>
+                            <td><code><?php echo esc_html( $server ); ?></code></td>
+                            <td><?php echo esc_html( number_format( $data['curr_connections'] ?? 0 ) ); ?></td>
+                            <td><?php echo esc_html( number_format( $data['curr_items'] ?? 0 ) ); ?></td>
+                            <td><?php echo esc_html( $this->format_bytes( $data['bytes'] ?? 0 ) ); ?></td>
+                            <td><?php echo esc_html( number_format( $data['evictions'] ?? 0 ) ); ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <?php endif; ?>
 
             <div class="card">
                 <h2><?php esc_html_e( 'Actions', 'hazelcast-object-cache' ); ?></h2>
@@ -150,5 +188,30 @@ class Hazelcast_WP_Admin {
             </div>
         </div>
         <?php
+    }
+
+    private function format_uptime( $seconds ) {
+        if ( $seconds < 60 ) {
+            return sprintf( _n( '%d second', '%d seconds', $seconds, 'hazelcast-object-cache' ), $seconds );
+        }
+        if ( $seconds < 3600 ) {
+            $minutes = floor( $seconds / 60 );
+            return sprintf( _n( '%d minute', '%d minutes', $minutes, 'hazelcast-object-cache' ), $minutes );
+        }
+        if ( $seconds < 86400 ) {
+            $hours = floor( $seconds / 3600 );
+            return sprintf( _n( '%d hour', '%d hours', $hours, 'hazelcast-object-cache' ), $hours );
+        }
+        $days = floor( $seconds / 86400 );
+        return sprintf( _n( '%d day', '%d days', $days, 'hazelcast-object-cache' ), $days );
+    }
+
+    private function format_bytes( $bytes ) {
+        $units = array( 'B', 'KB', 'MB', 'GB', 'TB' );
+        $bytes = max( $bytes, 0 );
+        $pow   = floor( ( $bytes ? log( $bytes ) : 0 ) / log( 1024 ) );
+        $pow   = min( $pow, count( $units ) - 1 );
+        $bytes /= pow( 1024, $pow );
+        return round( $bytes, 2 ) . ' ' . $units[ $pow ];
     }
 }
