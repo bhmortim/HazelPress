@@ -180,6 +180,10 @@ class Hazelcast_WP_Object_Cache {
         $this->debug     = defined( 'HAZELCAST_DEBUG' ) && HAZELCAST_DEBUG;
         $this->memcached = new Memcached( 'hazelcast_persistent' );
 
+        // Hazelcast only supports ASCII Memcache protocol; disable binary mode.
+        // Must be set outside the server-check block to apply to reused persistent connections.
+        $this->memcached->setOption( Memcached::OPT_BINARY_PROTOCOL, false );
+
         global $blog_id;
         $this->blog_prefix = ( function_exists( 'is_multisite' ) && is_multisite() ) ? (int) $blog_id : 1;
 
@@ -189,9 +193,6 @@ class Hazelcast_WP_Object_Cache {
 
         if ( ! count( $this->memcached->getServerList() ) ) {
             $this->memcached->setOption( Memcached::OPT_COMPRESSION, defined( 'HAZELCAST_COMPRESSION' ) ? (bool) HAZELCAST_COMPRESSION : true );
-
-            // Hazelcast only supports ASCII Memcache protocol; disable binary mode.
-            $this->memcached->setOption( Memcached::OPT_BINARY_PROTOCOL, false );
 
             if ( defined( 'HAZELCAST_KEY_PREFIX' ) ) {
                 $key_prefix = HAZELCAST_KEY_PREFIX;
