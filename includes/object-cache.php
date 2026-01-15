@@ -190,6 +190,9 @@ class Hazelcast_WP_Object_Cache {
         if ( ! count( $this->memcached->getServerList() ) ) {
             $this->memcached->setOption( Memcached::OPT_COMPRESSION, defined( 'HAZELCAST_COMPRESSION' ) ? (bool) HAZELCAST_COMPRESSION : true );
 
+            // Hazelcast only supports ASCII Memcache protocol; disable binary mode.
+            $this->memcached->setOption( Memcached::OPT_BINARY_PROTOCOL, false );
+
             if ( defined( 'HAZELCAST_KEY_PREFIX' ) ) {
                 $key_prefix = HAZELCAST_KEY_PREFIX;
             } elseif ( function_exists( 'site_url' ) ) {
