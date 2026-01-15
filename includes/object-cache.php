@@ -1206,6 +1206,10 @@ class Hazelcast_WP_Object_Cache {
     /**
      * Checks if the cache is connected to Hazelcast.
      *
+     * Uses a set/get/delete test cycle instead of getStats() because
+     * Hazelcast's Memcache protocol has limited support for the stats
+     * command, which can return UNKNOWN READ FAILURE errors.
+     *
      * @return bool True if connected and responsive.
      */
     public function is_connected() {
@@ -1216,8 +1220,19 @@ class Hazelcast_WP_Object_Cache {
         if ( empty( $servers ) ) {
             return false;
         }
-        $stats = @$this->memcached->getStats();
-        return ! empty( $stats );
+
+        $test_key   = '__hazelcast_connection_test__';
+        $test_value = uniqid( 'hztest_', true );
+
+        $set_result = @$this->memcached->set( $test_key, $test_value, 60 );
+        if ( ! $set_result ) {
+            return false;
+        }
+
+        $get_result = @$this->memcached->get( $test_key );
+        @$this->memcached->delete( $test_key );
+
+        return $get_result === $test_value;
     }
 
     /**
